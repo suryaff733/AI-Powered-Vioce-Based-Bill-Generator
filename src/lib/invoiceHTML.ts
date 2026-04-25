@@ -160,7 +160,7 @@ export function invHTML(d: any) {
   var itemRows = (d.rows || []).map(function (it: any, i: number) {
     var q = parseFloat(it.q) || 0, r = parseFloat(it.r) || 0, a = parseFloat(it.a) || 0;
     var rowAmt = (q > 0 && r > 0) ? q * r : a;
-    return '<tr><td style="text-align:center;padding:6px 8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + (i + 1) + '</td>' +
+    return '<tr style="vertical-align:top"><td style="text-align:center;padding:6px 8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + (i + 1) + '</td>' +
       '<td style="padding:6px 8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + esc(it.p || '') + '</td>' +
       '<td style="text-align:center;padding:6px 8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + esc(it.h || '') + '</td>' +
       '<td style="text-align:center;padding:6px 8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + (it.q || '') + '</td>' +
@@ -213,15 +213,24 @@ export function invHTML(d: any) {
     '<div style="display:flex;gap:4px;font-size:11px"><span style="min-width:60px">GSTIN :</span><span style="color:#6600cc">' + esc(d.sgstin || '') + '</span></div>' +
     '</div>' +
     '</div>' +
-    '<div style="flex:1;background:#fff">' +
-    '<table style="width:100%;font-size:11px"><thead><tr>' +
+    '<div style="flex:1;background:#fff;display:flex;flex-direction:column;">' +
+    '<table style="width:100%;height:100%;font-size:11px"><thead><tr>' +
     '<th style="width:35px;background:#f0f4ff;color:#003399;font-weight:700;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #003399;text-align:center">Sl.</th>' +
     '<th style="background:#f0f4ff;color:#003399;font-weight:700;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #003399;text-align:left">PARTICULARS</th>' +
     '<th style="width:75px;background:#f0f4ff;color:#003399;font-weight:700;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #003399;text-align:center">HSN/SAC</th>' +
     '<th style="width:55px;background:#f0f4ff;color:#003399;font-weight:700;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #003399;text-align:center">Qty</th>' +
     '<th style="width:85px;background:#f0f4ff;color:#003399;font-weight:700;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #003399;text-align:right">Rate</th>' +
     '<th style="width:100px;background:#f0f4ff;color:#003399;font-weight:700;padding:8px;border-bottom:1px solid #003399;text-align:right">AMOUNT</th>' +
-    '</tr></thead><tbody>' + itemRows + '</tbody></table>' +
+    '</tr></thead><tbody>' + itemRows + 
+    '<tr style="height:100%;">' +
+    '<td style="border-right:1px solid #003399;"></td>' +
+    '<td style="border-right:1px solid #003399;"></td>' +
+    '<td style="border-right:1px solid #003399;"></td>' +
+    '<td style="border-right:1px solid #003399;"></td>' +
+    '<td style="border-right:1px solid #003399;"></td>' +
+    '<td></td>' +
+    '</tr>' +
+    '</tbody></table>' +
     '</div>' +
     '<div style="display:flex;border-top:1px solid #003399;flex-shrink:0">' +
     '<div style="padding:10px 12px;font-size:10px;flex:1">' +
