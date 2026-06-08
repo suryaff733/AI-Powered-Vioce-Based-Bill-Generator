@@ -915,6 +915,12 @@ export default function App() {
 
   const [dscFile, setDscFile] = useState<string>("");
   const [dscPassword, setDscPassword] = useState<string>("");
+  const [sigMode, setSigMode] = useState<"file" | "usb">("file");
+  const [usbProvider, setUsbProvider] = useState<"signer_digital" | "custom_ws">("signer_digital");
+  const [customWsUrl, setCustomWsUrl] = useState<string>("ws://127.0.0.1:12345");
+  const [usbTokenPin, setUsbTokenPin] = useState<string>("");
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<{ status: 'success' | 'error' | null, message: string }>({ status: null, message: "" });
 
   const [isParsing, setIsParsing] = useState(false);
   const [showAiDrawer, setShowAiDrawer] = useState(false);
@@ -2434,6 +2440,14 @@ export default function App() {
       if (savedDsc) setDscFile(savedDsc);
       const savedDscPwd = localStorage.getItem('svs_dsc_pwd');
       if (savedDscPwd) setDscPassword(savedDscPwd);
+      const savedSigMode = localStorage.getItem('svs_sig_mode') as 'file' | 'usb';
+      if (savedSigMode) setSigMode(savedSigMode);
+      const savedUsbProvider = localStorage.getItem('svs_usb_provider') as 'signer_digital' | 'custom_ws';
+      if (savedUsbProvider) setUsbProvider(savedUsbProvider);
+      const savedCustomWsUrl = localStorage.getItem('svs_custom_ws_url');
+      if (savedCustomWsUrl) setCustomWsUrl(savedCustomWsUrl);
+      const savedUsbTokenPin = localStorage.getItem('svs_usb_token_pin');
+      if (savedUsbTokenPin) setUsbTokenPin(savedUsbTokenPin);
       
       const savedConv = localStorage.getItem('svs_active_conv');
       if (savedConv) {
@@ -2533,6 +2547,116 @@ export default function App() {
     localStorage.setItem('svs_dsc_pwd', val);
   };
 
+  const signViaWebSocket = (url: string, hash: string, pin: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        const ws = new WebSocket(url);
+        
+        const timeout = setTimeout(() => {
+          ws.close();
+          reject(new Error("Connection to local WebSocket bridge timed out."));
+        }, 10000);
+        
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            action: "sign",
+            hash: hash,
+            pin: pin
+          }));
+        };
+        
+        ws.onmessage = (event) => {
+          clearTimeout(timeout);
+          ws.close();
+          try {
+            const data = JSON.parse(event.data);
+            if (data.status === "success" && data.signature) {
+              resolve(data.signature);
+            } else {
+              reject(new Error(data.error || "Local bridge returned an error response."));
+            }
+          } catch (e) {
+            reject(new Error("Failed to parse local bridge response."));
+          }
+        };
+        
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error("Could not connect to the local WebSocket bridge at " + url));
+        };
+        
+        ws.onclose = () => {
+          clearTimeout(timeout);
+        };
+      } catch (e: any) {
+        reject(new Error("WebSocket initialization failed: " + e.message));
+      }
+    });
+  };
+
+  const testUsbConnection = async () => {
+    setTestingConnection(true);
+    setTestResult({ status: null, message: "Testing..." });
+    
+    if (usbProvider === 'signer_digital') {
+      try {
+        const sd = (window as any).SignerDigital;
+        if (!sd) {
+          throw new Error("Signer.Digital browser extension is not detected. Please verify it is installed and enabled.");
+        }
+        const cert = await sd.getSelectedCertificate("", true);
+        if (!cert || !cert.thumbprint) {
+          throw new Error("No certificate selected or USB token not inserted.");
+        }
+        setTestResult({
+          status: 'success',
+          message: `✓ Connected to USB token!\nSubject: ${cert.subjectName || 'Unknown'}\nThumbprint: ${cert.thumbprint}`
+        });
+      } catch (err: any) {
+        setTestResult({
+          status: 'error',
+          message: `✗ Error: ${err.message}`
+        });
+      }
+    } else if (usbProvider === 'custom_ws') {
+      try {
+        const wsResult = await new Promise<string>((resolve, reject) => {
+          const ws = new WebSocket(customWsUrl);
+          const timeout = setTimeout(() => { ws.close(); reject(new Error("Connection timed out.")); }, 3000);
+          
+          ws.onopen = () => {
+            ws.send(JSON.stringify({ action: "ping" }));
+          };
+          ws.onmessage = (event) => {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(event.data);
+          };
+          ws.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error("Connection error"));
+          };
+        });
+        
+        const data = JSON.parse(wsResult);
+        if (data.status === "success" || data.status === "pong") {
+          setTestResult({
+            status: 'success',
+            message: `✓ Connected to local WebSocket bridge!\nServer Version/Info: ${data.info || 'ePass2003 Bridge v1.0'}`
+          });
+        } else {
+          setTestResult({ status: 'error', message: `✗ Bridge returned error: ${data.error}` });
+        }
+      } catch (err: any) {
+        setTestResult({
+          status: 'error',
+          message: `✗ Could not connect to local bridge at ${customWsUrl}.\nMake sure your local python/Node bridge is running.`
+        });
+      }
+    }
+    setTestingConnection(false);
+  };
+
   const saveBill = () => {
     const d = getData();
     const newBills = [...bills];
@@ -2627,7 +2751,9 @@ export default function App() {
         
         const fname = `SVS_${d.type.toUpperCase()}_${d.no}_${(d.date || '').replace(/-/g, '')}_${(d.cname || 'bill').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
         
-        if (dscFile && dscPassword) {
+        let signatureApplied = false;
+
+        if (sigMode === 'file' && dscFile && dscPassword) {
           try {
             // Get raw PDF base64 (remove data URI prefix)
             const pdfBase64 = pdf.output('datauristring').split(',')[1];
@@ -2649,6 +2775,7 @@ export default function App() {
               link.href = `data:application/pdf;base64,${result.signedPdfBase64}`;
               link.download = fname.replace('.pdf', '_signed.pdf');
               link.click();
+              signatureApplied = true;
             } else {
               alert("Signing failed: " + result.error);
               pdf.save(fname); // fallback
@@ -2658,12 +2785,83 @@ export default function App() {
             alert("Error applying DSC signature. Downloading unsigned PDF.");
             pdf.save(fname);
           }
+        } else if (sigMode === 'usb') {
+          try {
+            const pdfBase64 = pdf.output('datauristring').split(',')[1];
+            
+            const res = await fetch("/api/prepare-usb-sign", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pdfBase64 }),
+            });
+            
+            if (!res.ok) {
+              const errData = await res.json();
+              throw new Error(errData.error || "Failed to prepare PDF for USB signing");
+            }
+            
+            const prepData = await res.json();
+            const { hash, pdfWithPlaceholderBase64, placeholderPos, placeholderLength } = prepData;
+            
+            let signatureHex = "";
+            if (usbProvider === 'signer_digital') {
+              const sd = (window as any).SignerDigital;
+              if (!sd) {
+                throw new Error("Signer.Digital extension not detected. Please make sure it is installed and running.");
+              }
+              
+              const cert = await sd.getSelectedCertificate("", true);
+              if (!cert || !cert.thumbprint) {
+                throw new Error("No certificate selected or USB token not found.");
+              }
+              
+              signatureHex = await sd.signPdfHash(hash, cert.thumbprint, "SHA-256");
+            } else if (usbProvider === 'custom_ws') {
+              signatureHex = await signViaWebSocket(customWsUrl, hash, usbTokenPin);
+            }
+            
+            if (!signatureHex) {
+              throw new Error("Failed to retrieve signature from the USB token.");
+            }
+            
+            // Inject signature hex client-side directly into PDF base64 binary array
+            const binaryString = window.atob(pdfWithPlaceholderBase64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            let paddedSignature = signatureHex.toLowerCase().trim();
+            if (paddedSignature.startsWith('0x')) {
+              paddedSignature = paddedSignature.slice(2);
+            }
+            if (paddedSignature.length > placeholderLength) {
+              throw new Error(`Signature length (${paddedSignature.length}) exceeds the reserved placeholder length (${placeholderLength})`);
+            }
+            paddedSignature = paddedSignature.padEnd(placeholderLength, '0');
+            
+            const encoder = new TextEncoder();
+            const sigBytes = encoder.encode(paddedSignature);
+            bytes.set(sigBytes, placeholderPos + 1);
+            
+            const blob = new Blob([bytes], { type: "application/pdf" });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fname.replace('.pdf', '_signed.pdf');
+            link.click();
+            signatureApplied = true;
+          } catch (err: any) {
+            console.error("USB Signing error", err);
+            alert("Error applying USB Digital Signature: " + err.message + "\nDownloading unsigned PDF.");
+            pdf.save(fname);
+          }
         } else {
           pdf.save(fname);
         }
         
         setIsDownloading(false);
-        setDlMsg('PDF downloaded' + (dscFile && dscPassword ? ' (Signed)' : '') + ': ' + fname);
+        setDlMsg('PDF downloaded' + (signatureApplied ? ' (Signed)' : '') + ': ' + fname);
         setShowBanner(true);
         setTimeout(() => setShowBanner(false), 4000);
       }).catch(() => setIsDownloading(false));
@@ -2856,17 +3054,134 @@ export default function App() {
                 )}
               </div>
               <div className="field">
-                <label>DSC Certificate (.p12 / .pfx)</label>
-                <input type="file" accept=".p12,.pfx" onChange={handleDscUpload} />
-                {dscFile && <div style={{ fontSize: "12px", color: "green", marginTop: "4px" }}>✓ Certificate loaded</div>}
-                {dscFile && (
-                  <div style={{ marginTop: "8px" }}>
-                    <label>DSC Password</label>
-                    <input type="password" value={dscPassword} onChange={handleDscPasswordChange} placeholder="Certificate Password" />
+                <label>Digital Signature (DSC) Mode</label>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      flex: 1,
+                      backgroundColor: sigMode === 'file' ? '#003399' : '#e2e8f0',
+                      color: sigMode === 'file' ? '#fff' : '#475569',
+                      border: "none",
+                      padding: "6px",
+                      borderRadius: "4px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                    onClick={() => { setSigMode('file'); localStorage.setItem('svs_sig_mode', 'file'); }}
+                  >
+                    File-based (.p12)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      flex: 1,
+                      backgroundColor: sigMode === 'usb' ? '#003399' : '#e2e8f0',
+                      color: sigMode === 'usb' ? '#fff' : '#475569',
+                      border: "none",
+                      padding: "6px",
+                      borderRadius: "4px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                    onClick={() => { setSigMode('usb'); localStorage.setItem('svs_sig_mode', 'usb'); }}
+                  >
+                    USB Hardware Token
+                  </button>
+                </div>
+
+                {sigMode === 'file' ? (
+                  <div>
+                    <label>DSC Certificate (.p12 / .pfx)</label>
+                    <input type="file" accept=".p12,.pfx" onChange={handleDscUpload} />
+                    {dscFile && <div style={{ fontSize: "12px", color: "green", marginTop: "4px" }}>✓ Certificate loaded</div>}
+                    {dscFile && (
+                      <div style={{ marginTop: "8px" }}>
+                        <label>DSC Password</label>
+                        <input type="password" value={dscPassword} onChange={handleDscPasswordChange} placeholder="Certificate Password" />
+                      </div>
+                    )}
+                    {dscFile && (
+                      <button className="btn btn-sm btn-red" style={{marginTop:"8px"}} onClick={() => { setDscFile(''); setDscPassword(''); localStorage.removeItem('svs_dsc'); localStorage.removeItem('svs_dsc_pwd'); }}>Remove DSC</button>
+                    )}
                   </div>
-                )}
-                {dscFile && (
-                  <button className="btn btn-sm btn-red" style={{marginTop:"8px"}} onClick={() => { setDscFile(''); setDscPassword(''); localStorage.removeItem('svs_dsc'); localStorage.removeItem('svs_dsc_pwd'); }}>Remove DSC</button>
+                ) : (
+                  <div>
+                    <div className="field" style={{ marginBottom: "10px" }}>
+                      <label>USB Token Driver / Bridge</label>
+                      <select
+                        value={usbProvider}
+                        onChange={e => {
+                          const val = e.target.value as any;
+                          setUsbProvider(val);
+                          localStorage.setItem('svs_usb_provider', val);
+                        }}
+                        style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff" }}
+                      >
+                        <option value="signer_digital">Signer.Digital Browser Extension</option>
+                        <option value="custom_ws">Local WebSocket Bridge (ws://)</option>
+                      </select>
+                    </div>
+
+                    {usbProvider === 'custom_ws' && (
+                      <>
+                        <div className="field" style={{ marginBottom: "8px" }}>
+                          <label>WebSocket Address</label>
+                          <input
+                            type="text"
+                            value={customWsUrl}
+                            placeholder="ws://127.0.0.1:12345"
+                            onChange={e => {
+                              setCustomWsUrl(e.target.value);
+                              localStorage.setItem('svs_custom_ws_url', e.target.value);
+                            }}
+                          />
+                        </div>
+                        <div className="field" style={{ marginBottom: "8px" }}>
+                          <label>Token PIN / Password</label>
+                          <input
+                            type="password"
+                            value={usbTokenPin}
+                            placeholder="USB Token PIN (e.g. 12345678)"
+                            onChange={e => {
+                              setUsbTokenPin(e.target.value);
+                              localStorage.setItem('svs_usb_token_pin', e.target.value);
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={testingConnection}
+                        onClick={testUsbConnection}
+                        style={{ alignSelf: "flex-start", padding: "4px 8px" }}
+                      >
+                        {testingConnection ? "Testing..." : "Test USB Token Connection"}
+                      </button>
+                      
+                      {testResult.status && (
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            padding: "8px",
+                            borderRadius: "4px",
+                            whiteSpace: "pre-wrap",
+                            backgroundColor: testResult.status === 'success' ? '#f0fdf4' : '#fef2f2',
+                            color: testResult.status === 'success' ? '#15803d' : '#b91c1c',
+                            border: `1px solid ${testResult.status === 'success' ? '#bbf7d0' : '#fecaca'}`
+                          }}
+                        >
+                          {testResult.message}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
