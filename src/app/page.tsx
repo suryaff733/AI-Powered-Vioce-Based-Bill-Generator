@@ -692,11 +692,27 @@ function autocorrectElectricalTerminology(text: string): string {
   });
 
   const svsVocabulary = [
-    "Sudhakar", "Motor", "Submersible", "Texmo", "Aquatex", "Cable", "Wire",
-    "Rewinding", "Condenser", "Ceiling", "Exhaust", "Starter", "Wiring", 
-    "Switch", "Light", "Board", "Pipe", "Meter", "Meters", "Square", "Point",
-    "Finolex", "Polycab", "Havells", "Pump", "Pumps", "Service", "HP",
-    "Bore", "Borewell", "Well", "Amp", "Amps", "Volt", "Volts", "Watt", "Watts"
+    // Standard Inventory/Brands
+    "Sudhakar", "Motor", "Motors", "Submersible", "Texmo", "Aquatex", "Cable", "Cables", "Wire", "Wires",
+    "Rewinding", "Winding", "Condenser", "Capacitor", "Capacitors", "Ceiling", "Exhaust", "Starter", "Starters",
+    "Wiring", "Switch", "Switches", "Light", "Lights", "Board", "Boards", "Pipe", "Pipes", "Meter", "Meters",
+    "Square", "Point", "Points", "Finolex", "Polycab", "Havells", "Pump", "Pumps", "Service", "Services",
+    
+    // Measurement & Electrical Units
+    "HP", "Amp", "Amps", "Ampere", "Amperes", "Volt", "Volts", "Voltage", "Watt", "Watts", "KW", "RPM",
+    "Phase", "Phases", "MFD", "Sq.mm", "SWG", "Hz", "Hertz",
+    
+    // Additional Brands & Manufacturers
+    "Kirloskar", "Crompton", "Usha", "V-Guard", "L&T", "Schneider", "Legrand", "Anchor", "Goldmedal", "Wipro", "Bajaj", "Philips",
+    
+    // Motor parts & Winding accessories
+    "Bore", "Borewell", "Well", "Bushes", "Bush", "Shaft", "Shafts", "Impeller", "Impellers", "Bearing", "Bearings",
+    "Seal", "Seals", "Oil", "Varnish", "Paper", "Sleeve", "Sleeves", "Tape", "Tapes", "Bends", "Bend", "Clamp", "Clamps",
+    
+    // General terms & Services
+    "Labor", "Labour", "Charges", "Fitting", "Installation", "Repair", "Testing", "AcroForm", "PVC", "GI",
+    "Collar", "Nipple", "Tee", "Elbow", "Thread", "Union", "Valve", "Flange", "Socket", "Sockets",
+    "Bulb", "Bulbs", "Holder", "Fuse", "MCB"
   ];
 
   const phoneticMap: Record<string, string> = {
@@ -830,10 +846,32 @@ function translateOrTransliterateTelugu(text: string): string {
   if (!text) return text;
   
   const teluguToEnglishMap: Record<string, string> = {
+    // Measurement Units
     "ఆంప్స్": "Amps",
     "ఆంప్": "Amp",
+    "వోల్ట్స్": "Volts",
+    "వోల్ట్": "Volt",
+    "వాట్స్": "Watts",
+    "వాట్": "Watt",
+    "ఫేస్": "Phase",
+    "ఫేజ్": "Phase",
+    
+    // Brands
+    "కిర్లోస్కర్": "Kirloskar",
+    "క్రాంప్టన్": "Crompton",
+    "ఉష": "Usha",
+    "వి గార్డ్": "V-Guard",
+    "వి-గార్డ్": "V-Guard",
+    
+    // Motor Parts / Plumbing
+    "బేరింగ్": "Bearing",
+    "బేరింగులు": "Bearings",
+    "సీల్": "Seal",
+    "ఆయిల్": "Oil",
     "బోర్వెల్": "Borewell",
     "బోర్": "Bore",
+    
+    // Existing mappings
     "సుధాకర్": "Sudhakar",
     "హెచ్పి": "HP",
     "హెచ్.పి": "HP",
