@@ -793,6 +793,20 @@ function autocorrectElectricalTerminology(text: string): string {
         : replacement.toLowerCase();
     }
 
+    // 1. Check for exact matches in vocabulary to prevent false corrections (e.g. "bore" -> "wire")
+    const exactMatch = svsVocabulary.find(vocab => vocab.toLowerCase() === cleanWord);
+    if (exactMatch) {
+      return word[0] === word[0].toUpperCase() ? exactMatch : exactMatch.toLowerCase();
+    }
+
+    // 2. Check for exact singular matches for plurals
+    const exactSingularMatch = hasPluralS ? svsVocabulary.find(vocab => vocab.toLowerCase() === singularCleanWord) : null;
+    if (exactSingularMatch) {
+      const replacementPlural = exactSingularMatch + "s";
+      return word[0] === word[0].toUpperCase() ? replacementPlural : replacementPlural.toLowerCase();
+    }
+
+    // 3. Fallback to Levenshtein spellchecker for misspelled words
     for (const vocab of svsVocabulary) {
       const vocabLower = vocab.toLowerCase();
       
