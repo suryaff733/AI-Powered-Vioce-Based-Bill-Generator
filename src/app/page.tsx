@@ -695,7 +695,8 @@ function autocorrectElectricalTerminology(text: string): string {
     "Sudhakar", "Motor", "Submersible", "Texmo", "Aquatex", "Cable", "Wire",
     "Rewinding", "Condenser", "Ceiling", "Exhaust", "Starter", "Wiring", 
     "Switch", "Light", "Board", "Pipe", "Meter", "Meters", "Square", "Point",
-    "Finolex", "Polycab", "Havells", "Pump", "Pumps", "Service", "HP"
+    "Finolex", "Polycab", "Havells", "Pump", "Pumps", "Service", "HP",
+    "Bore", "Borewell", "Well"
   ];
 
   const phoneticMap: Record<string, string> = {
@@ -815,6 +816,8 @@ function translateOrTransliterateTelugu(text: string): string {
   if (!text) return text;
   
   const teluguToEnglishMap: Record<string, string> = {
+    "బోర్వెల్": "Borewell",
+    "బోర్": "Bore",
     "సుధాకర్": "Sudhakar",
     "హెచ్పి": "HP",
     "హెచ్.పి": "HP",
