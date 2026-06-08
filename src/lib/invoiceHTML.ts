@@ -227,7 +227,7 @@ export function invHTML(d: any) {
       '<div style="height:40px;display:flex;align-items:center;justify-content:center;margin:4px 0;">' +
         (d.signatureUrl 
           ? '<img src="' + esc(d.signatureUrl) + '" style="max-height:40px;max-width:120px;object-fit:contain;" />' 
-          : '<div style="font-family:\'Brush Script MT\', \'Lucida Handwriting\', cursive;font-size:24px;color:#001a66;transform:rotate(-5deg);white-space:nowrap;opacity:0.85;text-shadow:0 0 1px rgba(0,26,102,0.3);">S. Venkateshwar Rao</div>'
+          : '<div style="height:40px;"></div>'
         ) +
       '</div>' +
       '<div>Authorised Signatory</div>' +
