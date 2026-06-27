@@ -3045,14 +3045,14 @@ export default function App() {
           </div>
           <div className="card">
             <div className="card-title">Bill To Party</div>
-            <div className="field"><label>Customer Name</label><input value={cname} onChange={e => setCname(e.target.value)} onBlur={e => setCname(translateOrTransliterateTelugu(e.target.value))} placeholder="e.g. Avenue Supermarts Ltd." style={{ borderColor: activeFieldFocus === 'cname' ? '#003399' : '', boxShadow: activeFieldFocus === 'cname' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
-            <div className="field"><label>Address</label><input value={caddr} onChange={e => setCaddr(e.target.value)} onBlur={e => setCaddr(translateOrTransliterateTelugu(e.target.value))} placeholder="e.g. Medipally D-Mart" style={{ borderColor: activeFieldFocus === 'caddr' ? '#003399' : '', boxShadow: activeFieldFocus === 'caddr' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
+            <div className="field"><label>Customer Name</label><input value={cname} onChange={e => setCname(e.target.value)} placeholder="e.g. Avenue Supermarts Ltd." style={{ borderColor: activeFieldFocus === 'cname' ? '#003399' : '', boxShadow: activeFieldFocus === 'cname' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
+            <div className="field"><label>Address</label><input value={caddr} onChange={e => setCaddr(e.target.value)} placeholder="e.g. Medipally D-Mart" style={{ borderColor: activeFieldFocus === 'caddr' ? '#003399' : '', boxShadow: activeFieldFocus === 'caddr' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
             <div className="field"><label>GSTIN</label><input value={cgstin} onChange={e => setCgstin(e.target.value)} placeholder="Optional" /></div>
           </div>
           <div className="card">
             <div className="card-title">Ship To Party <span style={{ fontSize: "10px", textTransform: "none", fontWeight: 400, color: "var(--color-text-secondary)" }}>(Optional)</span></div>
-            <div className="field"><label>Name</label><input value={sname} onChange={e => setSname(e.target.value)} onBlur={e => setSname(translateOrTransliterateTelugu(e.target.value))} placeholder="Leave blank if same as Bill To" /></div>
-            <div className="field"><label>Address</label><input value={saddr} onChange={e => setSaddr(e.target.value)} onBlur={e => setSaddr(translateOrTransliterateTelugu(e.target.value))} placeholder="Optional" /></div>
+            <div className="field"><label>Name</label><input value={sname} onChange={e => setSname(e.target.value)} placeholder="Leave blank if same as Bill To" /></div>
+            <div className="field"><label>Address</label><input value={saddr} onChange={e => setSaddr(e.target.value)} placeholder="Optional" /></div>
             <div className="field"><label>GSTIN</label><input value={sgstin} onChange={e => setSgstin(e.target.value)} placeholder="Optional" /></div>
           </div>
           <div className="card">
@@ -3072,7 +3072,7 @@ export default function App() {
                   {rows.map((r, i) => (
                     <tr key={i}>
                       <td style={{ textAlign: "center", color: "#888" }}>{i + 1}</td>
-                      <td data-lbl="Particulars"><input value={r.p} placeholder="Description" onChange={e => upd(i, 'p', e.target.value)} onBlur={e => upd(i, 'p', translateOrTransliterateTelugu(e.target.value))} style={{ borderColor: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
+                      <td data-lbl="Particulars"><input value={r.p} placeholder="Description" onChange={e => upd(i, 'p', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
                       <td data-lbl="HSN/SAC"><input value={r.h} placeholder="HSN" onChange={e => upd(i, 'h', e.target.value)} /></td>
                       <td data-lbl="Qty"><input type="text" value={r.q} placeholder="0" onChange={e => upd(i, 'q', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
                       <td data-lbl="Rate (Rs.)"><input type="number" min="0" value={r.r} placeholder="0" onChange={e => upd(i, 'r', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
