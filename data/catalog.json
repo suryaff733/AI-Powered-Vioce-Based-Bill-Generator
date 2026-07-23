@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Submersible Motor",
+    "defaultRate": 5000
+  },
+  {
+    "name": "Texmo Pump",
+    "defaultRate": 4500
+  },
+  {
+    "name": "Aquatex Pump",
+    "defaultRate": 4500
+  },
+  {
+    "name": "Finolex Cable",
+    "defaultRate": 2500
+  },
+  {
+    "name": "Polycab Wire",
+    "defaultRate": 1800
+  },
+  {
+    "name": "Ceiling Fan",
+    "defaultRate": 1500
+  },
+  {
+    "name": "Exhaust Fan",
+    "defaultRate": 1200
+  },
+  {
+    "name": "Starter Box",
+    "defaultRate": 2000
+  },
+  {
+    "name": "PVC Pipe",
+    "defaultRate": 120
+  },
+  {
+    "name": "Copper Wire",
+    "defaultRate": 25
+  },
+  {
+    "name": "Binding Wire",
+    "defaultRate": 80
+  },
+  {
+    "name": "Switch Board",
+    "defaultRate": 300
+  }
+]

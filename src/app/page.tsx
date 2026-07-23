@@ -7,7 +7,7 @@ import { invHTML } from "../lib/invoiceHTML";
 import "./globals.css"; // Ensure global CSS has the original styles
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import ConversationalDrawer from "./components/ConversationalDrawer";
-import catalog from "./catalog.json";
+import defaultCatalog from "./catalog.json";
 
 type Row = { p: string; h: string; q: string; r: string; a: number };
 type BillType = 'gst' | 'quotation' | 'cash';
@@ -962,6 +962,19 @@ export default function App() {
   const [bills, setBills] = useState<any[]>([]);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced');
   const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
+
+  // Dynamic Catalog States
+  const [catalogItems, setCatalogItems] = useState<any[]>(defaultCatalog);
+  const [showCatalogModal, setShowCatalogModal] = useState(false);
+  const [newProdName, setNewProdName] = useState("");
+  const [newProdRate, setNewProdRate] = useState("");
+  const [newProdHsn, setNewProdHsn] = useState("");
+
+  // History Search & Filter States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<string>("all");
+  const [filterFromDate, setFilterFromDate] = useState("");
+  const [filterToDate, setFilterToDate] = useState("");
   
   const [dlMsg, setDlMsg] = useState("");
   const [showBanner, setShowBanner] = useState(false);
@@ -1302,13 +1315,13 @@ export default function App() {
 
   const matchProduct = (inputName: string): { matches: string[]; exact: boolean } => {
     const cleanInput = inputName.toLowerCase().trim();
-    const exactMatch = catalog.find(item => item.name.toLowerCase() === cleanInput);
+    const exactMatch = catalogItems.find(item => item.name.toLowerCase() === cleanInput);
     if (exactMatch) {
       return { matches: [exactMatch.name], exact: true };
     }
 
     // Check substring matches
-    const substringMatches = catalog.filter(item => 
+    const substringMatches = catalogItems.filter(item => 
       item.name.toLowerCase().includes(cleanInput) || cleanInput.includes(item.name.toLowerCase())
     );
     if (substringMatches.length > 0) {
@@ -1316,7 +1329,7 @@ export default function App() {
     }
 
     // Fuzzy matching using Levenshtein distance
-    const suggestions = catalog
+    const suggestions = catalogItems
       .map(item => ({
         name: item.name,
         distance: getLevenshteinDistance(cleanInput, item.name.toLowerCase())
@@ -2487,8 +2500,73 @@ export default function App() {
     }
   }, [fsmState, fsmContext, chatMessages]);
 
+  const syncCatalogWithServer = async () => {
+    try {
+      const res = await fetch('/api/catalog');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.catalog) && data.catalog.length > 0) {
+          setCatalogItems(data.catalog);
+          try { localStorage.setItem('svs_catalog', JSON.stringify(data.catalog)); } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.warn('Catalog sync offline/failed:', e);
+    }
+  };
+
+  const handleAddCatalogProduct = async () => {
+    if (!newProdName.trim()) {
+      alert('Please enter a product name');
+      return;
+    }
+    const item = {
+      name: newProdName.trim(),
+      defaultRate: Number(newProdRate) || 0,
+      hsn: newProdHsn.trim(),
+    };
+    try {
+      const res = await fetch('/api/catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.catalog)) {
+          setCatalogItems(data.catalog);
+          try { localStorage.setItem('svs_catalog', JSON.stringify(data.catalog)); } catch (e) {}
+          setNewProdName('');
+          setNewProdRate('');
+          setNewProdHsn('');
+        }
+      }
+    } catch (e) {
+      alert('Failed to save product to catalog');
+    }
+  };
+
+  const handleDeleteCatalogProduct = async (name: string) => {
+    if (!confirm(`Delete "${name}" from catalog?`)) return;
+    try {
+      const res = await fetch(`/api/catalog?name=${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.catalog)) {
+          setCatalogItems(data.catalog);
+          try { localStorage.setItem('svs_catalog', JSON.stringify(data.catalog)); } catch (e) {}
+        }
+      }
+    } catch (e) {
+      alert('Failed to delete product from catalog');
+    }
+  };
+
   const syncWithCentralServer = async (localBillsOverride?: any[]) => {
     setSyncStatus('syncing');
+    syncCatalogWithServer();
     try {
       let localBills = localBillsOverride;
       if (!localBills) {
@@ -2595,12 +2673,14 @@ export default function App() {
       syncWithCentralServer();
     }, 10000);
 
-    const handleFocus = () => syncWithCentralServer();
-    window.addEventListener('focus', handleFocus);
+    const handleOnline = () => syncWithCentralServer();
+    window.addEventListener('focus', handleOnline);
+    window.addEventListener('online', handleOnline);
 
     return () => {
       clearInterval(intervalId);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', handleOnline);
+      window.removeEventListener('online', handleOnline);
     };
   }, []);
 
@@ -2612,6 +2692,16 @@ export default function App() {
     const newRows = [...rows];
     (newRows[i] as any)[field] = val;
     
+    if (field === 'p' && val) {
+      const match = catalogItems.find(c => c.name.toLowerCase() === val.toLowerCase().trim());
+      if (match) {
+        if (match.hsn && !newRows[i].h) newRows[i].h = match.hsn;
+        if (match.defaultRate && (!newRows[i].r || newRows[i].r === '0' || newRows[i].r === '')) {
+          newRows[i].r = String(match.defaultRate);
+        }
+      }
+    }
+
     const q = parseFloat(newRows[i].q);
     const r = parseFloat(newRows[i].r);
     
@@ -3058,6 +3148,25 @@ export default function App() {
     }, 600);
   };
 
+  const normalizedFromDate = filterFromDate && filterToDate && filterFromDate > filterToDate ? filterToDate : filterFromDate;
+  const normalizedToDate = filterFromDate && filterToDate && filterFromDate > filterToDate ? filterFromDate : filterToDate;
+
+  const filteredBills = bills.map((b, originalIndex) => ({ ...b, originalIndex })).filter((b) => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchName = b.cname && b.cname.toLowerCase().includes(q);
+      const matchNo = b.no && String(b.no).toLowerCase().includes(q);
+      const matchItems = b.rows && b.rows.some((r: any) => r.p && r.p.toLowerCase().includes(q));
+      if (!matchName && !matchNo && !matchItems) return false;
+    }
+
+    if (filterType !== 'all' && b.type !== filterType) return false;
+    if (normalizedFromDate && (!b.date || b.date < normalizedFromDate)) return false;
+    if (normalizedToDate && (!b.date || b.date > normalizedToDate)) return false;
+
+    return true;
+  });
+
   return (
     <div className="app">
       {showResumeBanner && (
@@ -3205,7 +3314,20 @@ export default function App() {
                   {rows.map((r, i) => (
                     <tr key={i}>
                       <td style={{ textAlign: "center", color: "#888" }}>{i + 1}</td>
-                      <td data-lbl="Particulars"><input value={r.p} placeholder="Description" onChange={e => upd(i, 'p', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
+                      <td data-lbl="Particulars">
+                        <input
+                          value={r.p}
+                          list="catalog-products"
+                          placeholder="Description"
+                          onChange={e => upd(i, 'p', e.target.value)}
+                          style={{ borderColor: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }}
+                        />
+                        <datalist id="catalog-products">
+                          {catalogItems.map((c, idx) => (
+                            <option key={idx} value={c.name}>{c.defaultRate ? `Rs. ${c.defaultRate}` : ''}</option>
+                          ))}
+                        </datalist>
+                      </td>
                       <td data-lbl="HSN/SAC"><input value={r.h} placeholder="HSN" onChange={e => upd(i, 'h', e.target.value)} /></td>
                       <td data-lbl="Qty"><input type="text" value={r.q} placeholder="0" onChange={e => upd(i, 'q', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
                       <td data-lbl="Rate (Rs.)"><input type="number" min="0" value={r.r} placeholder="0" onChange={e => upd(i, 'r', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
@@ -3407,7 +3529,7 @@ export default function App() {
 
       {activeSec === 'history' && (
         <div id="sec-history">
-          {/* Centralized Storage & Backup Bar */}
+          {/* Centralized Storage & Catalog Toolbar */}
           <div className="card" style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -3423,17 +3545,24 @@ export default function App() {
                 <div>
                   <div style={{ fontWeight: 600, fontSize: "13px", color: "#1e293b" }}>
                     {syncStatus === 'synced' && 'Centralized Multi-Device Storage Active'}
-                    {syncStatus === 'syncing' && 'Syncing bills across devices...'}
+                    {syncStatus === 'syncing' && 'Syncing bills & catalog across devices...'}
                     {syncStatus === 'offline' && 'Offline Mode (Saved to local browser storage)'}
                     {syncStatus === 'error' && 'Central Sync Warning (Using local copy)'}
                   </div>
                   <div style={{ fontSize: "11px", color: "#64748b" }}>
-                    {lastSyncedTime ? `Last synced at ${lastSyncedTime}` : 'All devices automatically share this central bill database'}
+                    {lastSyncedTime ? `Last synced at ${lastSyncedTime}` : 'All devices automatically share central bills & catalog'}
                   </div>
                 </div>
               </div>
 
               <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setShowCatalogModal(true)}
+                  style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#0f766e", color: "#fff", borderColor: "#0f766e" }}
+                >
+                  📦 Product Catalog ({catalogItems.length})
+                </button>
                 <button
                   className="btn btn-sm"
                   onClick={() => syncWithCentralServer()}
@@ -3447,7 +3576,7 @@ export default function App() {
                   onClick={exportDataBackup}
                   style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#0284c7", color: "#fff", borderColor: "#0284c7" }}
                 >
-                  📥 Export Backup (JSON)
+                  📥 Export Backup
                 </button>
                 <label
                   className="btn btn-sm"
@@ -3465,28 +3594,234 @@ export default function App() {
             </div>
           </div>
 
-          {!bills.length ? (
-            <div className="empty">No saved bills yet.</div>
-          ) : (
-            bills.map((b, i) => (
-              <div key={i} className="hist-item" onClick={() => loadBill(i)}>
-                <div style={{ flex: 1 }}>
-                  <div className="hi-no">#{b.no}
-                    {b.type === 'gst' && <span className="tag tag-gst">GST</span>}
-                    {b.type === 'quotation' && <span className="tag tag-q">Quotation</span>}
-                    {b.type === 'cash' && <span className="tag tag-c">Cash Memo</span>}
-                  </div>
-                  <div className="hi-meta">{b.cname || '—'} &nbsp;·&nbsp; {b.date || '—'}</div>
+          {/* Search & Multi-Filter Control Card */}
+          <div className="card" style={{ marginBottom: "16px", padding: "14px 18px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {/* Row 1: Search Query & Type Filter */}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: "220px", position: "relative" }}>
+                  <input
+                    type="text"
+                    placeholder="Search by customer name, bill no, or product item..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: "100%", paddingLeft: "30px" }}
+                  />
+                  <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", opacity: 0.5, fontSize: "14px" }}>🔍</span>
                 </div>
-                <div className="hi-amt">Rs.{fmtD(b.grand).replace('Rs. ', '')}</div>
-                <div style={{ display: "flex", gap: "4px" }} onClick={e => e.stopPropagation()}>
-                  <button className="btn btn-sm" onClick={() => loadBill(i)}>Edit</button>
-                  <button className="btn btn-green btn-sm" onClick={() => { loadBill(i); setTimeout(() => setActiveSec('preview'), 100); }}>PDF</button>
-                  <button className="btn btn-red btn-sm" onClick={() => delBill(i)}>Del</button>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <button
+                    className={`btn btn-sm ${filterType === 'all' ? 'btn-blue' : ''}`}
+                    onClick={() => setFilterType('all')}
+                  >
+                    All ({bills.length})
+                  </button>
+                  <button
+                    className={`btn btn-sm ${filterType === 'gst' ? 'btn-blue' : ''}`}
+                    onClick={() => setFilterType('gst')}
+                  >
+                    GST
+                  </button>
+                  <button
+                    className={`btn btn-sm ${filterType === 'quotation' ? 'btn-blue' : ''}`}
+                    onClick={() => setFilterType('quotation')}
+                  >
+                    Quotation
+                  </button>
+                  <button
+                    className={`btn btn-sm ${filterType === 'cash' ? 'btn-blue' : ''}`}
+                    onClick={() => setFilterType('cash')}
+                  >
+                    Cash
+                  </button>
                 </div>
               </div>
-            ))
+
+              {/* Row 2: Date Filters & Match Summary */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", fontSize: "12px" }}>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ color: "var(--color-text-secondary)" }}>From:</span>
+                  <input
+                    type="date"
+                    value={filterFromDate}
+                    onChange={(e) => setFilterFromDate(e.target.value)}
+                    style={{ padding: "3px 6px", fontSize: "12px", width: "auto" }}
+                  />
+                  <span style={{ color: "var(--color-text-secondary)" }}>To:</span>
+                  <input
+                    type="date"
+                    value={filterToDate}
+                    onChange={(e) => setFilterToDate(e.target.value)}
+                    style={{ padding: "3px 6px", fontSize: "12px", width: "auto" }}
+                  />
+                  {(searchQuery || filterType !== 'all' || filterFromDate || filterToDate) && (
+                    <button
+                      className="btn btn-sm btn-red"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setFilterType('all');
+                        setFilterFromDate('');
+                        setFilterToDate('');
+                      }}
+                      style={{ padding: "2px 8px", fontSize: "11px" }}
+                    >
+                      Clear Filters
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                  Showing {filteredBills.length} of {bills.length} bills
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {!filteredBills.length ? (
+            <div className="empty">
+              {bills.length === 0 ? "No saved bills yet." : "No bills match your current search/filter criteria."}
+            </div>
+          ) : (
+            filteredBills.map((b) => {
+              const i = b.originalIndex;
+              return (
+                <div key={i} className="hist-item" onClick={() => loadBill(i)}>
+                  <div style={{ flex: 1 }}>
+                    <div className="hi-no">#{b.no}
+                      {b.type === 'gst' && <span className="tag tag-gst">GST</span>}
+                      {b.type === 'quotation' && <span className="tag tag-q">Quotation</span>}
+                      {b.type === 'cash' && <span className="tag tag-c">Cash Memo</span>}
+                    </div>
+                    <div className="hi-meta">{b.cname || '—'} &nbsp;·&nbsp; {b.date || '—'}</div>
+                  </div>
+                  <div className="hi-amt">Rs.{fmtD(b.grand).replace('Rs. ', '')}</div>
+                  <div style={{ display: "flex", gap: "4px" }} onClick={e => e.stopPropagation()}>
+                    <button className="btn btn-sm" onClick={() => loadBill(i)}>Edit</button>
+                    <button className="btn btn-green btn-sm" onClick={() => { loadBill(i); setTimeout(() => setActiveSec('preview'), 100); }}>PDF</button>
+                    <button className="btn btn-red btn-sm" onClick={() => delBill(i)}>Del</button>
+                  </div>
+                </div>
+              );
+            })
           )}
+        </div>
+      )}
+
+      {/* Central Product Catalog Manager Modal */}
+      {showCatalogModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(4px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+          }}
+          onClick={() => setShowCatalogModal(false)}
+        >
+          <div
+            className="card"
+            style={{
+              maxWidth: "550px",
+              width: "100%",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              backgroundColor: "#fff",
+              borderRadius: "12px",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+              margin: 0,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e2e8f0", paddingBottom: "12px", marginBottom: "14px" }}>
+              <div style={{ fontWeight: 700, fontSize: "16px", color: "#0f766e" }}>
+                📦 Centralized Product Catalog ({catalogItems.length} items)
+              </div>
+              <button className="btn btn-sm btn-red" onClick={() => setShowCatalogModal(false)}>✕ Close</button>
+            </div>
+
+            {/* Add New Product Form */}
+            <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px", borderRadius: "8px", marginBottom: "16px" }}>
+              <div style={{ fontWeight: 600, fontSize: "13px", color: "#166534", marginBottom: "8px" }}>+ Add / Update Product Preset</div>
+              <div className="g2" style={{ marginBottom: "8px" }}>
+                <div className="field">
+                  <label>Product Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Submersible Motor 1HP"
+                    value={newProdName}
+                    onChange={(e) => setNewProdName(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Default Rate (Rs.)</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 5000"
+                    value={newProdRate}
+                    onChange={(e) => setNewProdRate(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>HSN / SAC Code (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 8413"
+                    value={newProdHsn}
+                    onChange={(e) => setNewProdHsn(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="btn btn-green"
+                  style={{ alignSelf: "flex-end", height: "36px", padding: "0 16px" }}
+                  onClick={handleAddCatalogProduct}
+                >
+                  Save to Catalog
+                </button>
+              </div>
+            </div>
+
+            {/* Catalog Items List */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {catalogItems.map((c, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "8px 12px",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "6px",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "13px" }}>{c.name}</div>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>
+                      Default Rate: <strong>Rs. {c.defaultRate}</strong> {c.hsn ? `· HSN: ${c.hsn}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-red"
+                    onClick={() => handleDeleteCatalogProduct(c.name)}
+                    style={{ padding: "2px 8px", fontSize: "11px" }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
       <ConversationalDrawer
