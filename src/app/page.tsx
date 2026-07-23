@@ -960,6 +960,8 @@ export default function App() {
   const [applyGst, setApplyGst] = useState(true);
   const [discount, setDiscount] = useState(0);
   const [bills, setBills] = useState<any[]>([]);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced');
+  const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
   
   const [dlMsg, setDlMsg] = useState("");
   const [showBanner, setShowBanner] = useState(false);
@@ -2485,6 +2487,80 @@ export default function App() {
     }
   }, [fsmState, fsmContext, chatMessages]);
 
+  const syncWithCentralServer = async (localBillsOverride?: any[]) => {
+    setSyncStatus('syncing');
+    try {
+      let localBills = localBillsOverride;
+      if (!localBills) {
+        try {
+          localBills = JSON.parse(localStorage.getItem('svs4') || '[]');
+        } catch (e) {
+          localBills = [];
+        }
+      }
+
+      const res = await fetch('/api/bills', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(localBills),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.bills)) {
+          setBills(data.bills);
+          try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
+          setSyncStatus('synced');
+          setLastSyncedTime(new Date().toLocaleTimeString());
+
+          const nums = data.bills.map((b: any) => parseInt(b.no)).filter((n: number) => !isNaN(n));
+          if (nums.length) {
+            setNo(String(Math.max(...nums) + 1).padStart(3, '0'));
+          }
+          return data.bills;
+        }
+      }
+      setSyncStatus('error');
+    } catch (e) {
+      console.warn('Central server sync offline/failed:', e);
+      setSyncStatus('offline');
+    }
+  };
+
+  const exportDataBackup = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bills, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `svs_billing_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (e) {
+      alert("Failed to export backup data.");
+    }
+  };
+
+  const importDataBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileReader = new FileReader();
+    if (e.target.files && e.target.files[0]) {
+      fileReader.readAsText(e.target.files[0], "UTF-8");
+      fileReader.onload = async (event) => {
+        try {
+          const imported = JSON.parse(event.target?.result as string);
+          if (Array.isArray(imported)) {
+            await syncWithCentralServer(imported);
+            alert(`Successfully imported and merged ${imported.length} bills into central storage!`);
+          } else {
+            alert('Invalid backup file format. Expected a JSON array of bills.');
+          }
+        } catch (err) {
+          alert('Error parsing backup JSON file.');
+        }
+      };
+    }
+  };
+
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('svs4') || '[]');
@@ -2512,6 +2588,20 @@ export default function App() {
       }
     } catch (e) {}
     setDate(new Date().toISOString().split('T')[0]);
+
+    syncWithCentralServer();
+
+    const intervalId = setInterval(() => {
+      syncWithCentralServer();
+    }, 10000);
+
+    const handleFocus = () => syncWithCentralServer();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const addRow = (p='', h='', q='', r='', a=0) => {
@@ -2714,7 +2804,7 @@ export default function App() {
     setTestingConnection(false);
   };
 
-  const saveBill = () => {
+  const saveBill = async () => {
     const d = getData();
     const newBills = [...bills];
     const idx = newBills.findIndex(b => b.no === d.no && b.type === d.type);
@@ -2724,6 +2814,27 @@ export default function App() {
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)) } catch (e) {}
     setActiveSec('history');
+
+    // Central server save
+    setSyncStatus('syncing');
+    try {
+      const res = await fetch('/api/bills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(d),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.bills)) {
+          setBills(data.bills);
+          try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
+          setSyncStatus('synced');
+          setLastSyncedTime(new Date().toLocaleTimeString());
+        }
+      }
+    } catch (e) {
+      setSyncStatus('offline');
+    }
   };
 
   const loadBill = (i: number) => {
@@ -2745,12 +2856,34 @@ export default function App() {
     setActiveSec('create');
   };
 
-  const delBill = (i: number) => {
+  const delBill = async (i: number) => {
     if (!confirm('Delete this bill?')) return;
+    const target = bills[i];
     const newBills = [...bills];
     newBills.splice(i, 1);
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)) } catch (e) {}
+
+    // Central server delete
+    if (target && target.no) {
+      setSyncStatus('syncing');
+      try {
+        const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.bills)) {
+            setBills(data.bills);
+            try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
+            setSyncStatus('synced');
+            setLastSyncedTime(new Date().toLocaleTimeString());
+          }
+        }
+      } catch (e) {
+        setSyncStatus('offline');
+      }
+    }
   };
 
   const resetForm = () => {
@@ -3274,6 +3407,64 @@ export default function App() {
 
       {activeSec === 'history' && (
         <div id="sec-history">
+          {/* Centralized Storage & Backup Bar */}
+          <div className="card" style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div
+                  style={{
+                    width: "10px",
+                    height: "10px",
+                    borderRadius: "50%",
+                    backgroundColor: syncStatus === 'synced' ? '#22c55e' : syncStatus === 'syncing' ? '#eab308' : '#ef4444',
+                    boxShadow: syncStatus === 'synced' ? '0 0 8px #22c55e' : 'none'
+                  }}
+                />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "13px", color: "#1e293b" }}>
+                    {syncStatus === 'synced' && 'Centralized Multi-Device Storage Active'}
+                    {syncStatus === 'syncing' && 'Syncing bills across devices...'}
+                    {syncStatus === 'offline' && 'Offline Mode (Saved to local browser storage)'}
+                    {syncStatus === 'error' && 'Central Sync Warning (Using local copy)'}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#64748b" }}>
+                    {lastSyncedTime ? `Last synced at ${lastSyncedTime}` : 'All devices automatically share this central bill database'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => syncWithCentralServer()}
+                  disabled={syncStatus === 'syncing'}
+                  style={{ fontSize: "12px", padding: "4px 10px" }}
+                >
+                  {syncStatus === 'syncing' ? '🔄 Syncing...' : '🔄 Sync Now'}
+                </button>
+                <button
+                  className="btn btn-sm"
+                  onClick={exportDataBackup}
+                  style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#0284c7", color: "#fff", borderColor: "#0284c7" }}
+                >
+                  📥 Export Backup (JSON)
+                </button>
+                <label
+                  className="btn btn-sm"
+                  style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#4f46e5", color: "#fff", borderColor: "#4f46e5", cursor: "pointer", margin: 0 }}
+                >
+                  📤 Import Backup
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={importDataBackup}
+                    style={{ display: "none" }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
           {!bills.length ? (
             <div className="empty">No saved bills yet.</div>
           ) : (
