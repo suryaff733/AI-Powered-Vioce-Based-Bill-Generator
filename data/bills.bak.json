@@ -44,7 +44,7 @@
     "grand": 1700,
     "saved": "2026-06-08T08:57:46.932Z",
     "signatureUrl": "",
-    "updatedAt": "2026-07-23T16:03:01.193Z"
+    "updatedAt": "2026-07-23T16:03:21.176Z"
   },
   {
     "type": "gst",
@@ -91,7 +91,7 @@
     "grand": 1700,
     "saved": "2026-06-08T08:55:00.816Z",
     "signatureUrl": "",
-    "updatedAt": "2026-07-23T16:03:01.193Z"
+    "updatedAt": "2026-07-23T16:03:21.176Z"
   },
   {
     "type": "quotation",
@@ -131,7 +131,7 @@
     "grand": 129.8,
     "saved": "2026-06-08T05:30:38.946Z",
     "signatureUrl": "",
-    "updatedAt": "2026-07-23T16:03:01.193Z"
+    "updatedAt": "2026-07-23T16:03:21.176Z"
   },
   {
     "type": "gst",
@@ -175,7 +175,7 @@
     "grand": 23010,
     "saved": "2026-05-25T10:40:37.985Z",
     "signatureUrl": "https://res.cloudinary.com/dci6zeb1n/image/upload/v1779703965/svs_billing_signatures/jjvwihgtexwvko6yqg99.png",
-    "updatedAt": "2026-07-23T16:03:01.193Z"
+    "updatedAt": "2026-07-23T16:03:21.176Z"
   },
   {
     "type": "gst",
@@ -219,6 +219,6 @@
     "grand": 23010,
     "saved": "2026-05-25T10:28:25.868Z",
     "signatureUrl": "https://res.cloudinary.com/dci6zeb1n/image/upload/v1779703965/svs_billing_signatures/jjvwihgtexwvko6yqg99.png",
-    "updatedAt": "2026-07-23T16:03:01.193Z"
+    "updatedAt": "2026-07-23T16:03:21.176Z"
   }
 ]
