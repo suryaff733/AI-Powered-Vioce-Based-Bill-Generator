@@ -2591,34 +2591,44 @@ export default function App() {
     setSyncStatus('syncing');
     syncCatalogWithServer();
     try {
-      let localBills = localBillsOverride;
-      if (!localBills) {
-        try {
-          localBills = JSON.parse(localStorage.getItem('svs4') || '[]');
-        } catch (e) {
-          localBills = [];
-        }
-      }
+      if (localBillsOverride && Array.isArray(localBillsOverride)) {
+        const res = await fetch('/api/bills', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(localBillsOverride),
+        });
 
-      const res = await fetch('/api/bills', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(localBills),
-      });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.bills)) {
+            setBills(data.bills);
+            try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
+            setSyncStatus('synced');
+            setLastSyncedTime(new Date().toLocaleTimeString());
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.bills)) {
-          setBills(data.bills);
-          try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
-          setSyncStatus('synced');
-          setLastSyncedTime(new Date().toLocaleTimeString());
-
-          const nums = data.bills.map((b: any) => parseInt(b.no)).filter((n: number) => !isNaN(n));
-          if (nums.length) {
-            setNo(String(Math.max(...nums) + 1).padStart(3, '0'));
+            const nums = data.bills.map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10)).filter((n: number) => !isNaN(n));
+            if (nums.length) {
+              setNo(String(Math.max(...nums) + 1).padStart(3, '0'));
+            }
+            return data.bills;
           }
-          return data.bills;
+        }
+      } else {
+        const res = await fetch('/api/bills');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.bills)) {
+            setBills(data.bills);
+            try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
+            setSyncStatus('synced');
+            setLastSyncedTime(new Date().toLocaleTimeString());
+
+            const nums = data.bills.map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10)).filter((n: number) => !isNaN(n));
+            if (nums.length) {
+              setNo(String(Math.max(...nums) + 1).padStart(3, '0'));
+            }
+            return data.bills;
+          }
         }
       }
       setSyncStatus('error');
@@ -2920,12 +2930,12 @@ export default function App() {
   const saveBill = async () => {
     const d = getData();
     const newBills = [...bills];
-    const idx = newBills.findIndex(b => b.no === d.no && b.type === d.type);
+    const idx = newBills.findIndex(b => String(b.no).trim() === String(d.no).trim() && String(b.type).toLowerCase().trim() === String(d.type).toLowerCase().trim());
     if (idx >= 0) newBills[idx] = d;
     else newBills.unshift(d);
     
     setBills(newBills);
-    try { localStorage.setItem('svs4', JSON.stringify(newBills)) } catch (e) {}
+    try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
     setActiveSec('history');
 
     // Central server save
@@ -2950,9 +2960,9 @@ export default function App() {
     }
   };
 
-  const loadBill = (i: number) => {
-    const d = bills[i];
-    setBtype(d.type);
+  const loadBill = (d: any) => {
+    if (!d) return;
+    setBtype(d.type || 'gst');
     setNo(d.no || '');
     setDate(d.date || '');
     setPo(d.po || '');
@@ -2963,39 +2973,42 @@ export default function App() {
     setSname(d.sname || '');
     setSaddr(d.saddr || '');
     setSgstin(d.sgstin || '');
-    setApplyGst(!!d.applyGst);
-    setRows(d.rows || []);
+    setApplyGst(d.applyGst !== undefined ? Boolean(d.applyGst) : d.type === 'gst');
+    setDiscount(d.discount !== undefined ? Number(d.discount) : 0);
+    setRows(Array.isArray(d.rows) && d.rows.length > 0 ? d.rows : [
+      { p: "", h: "", q: "", r: "", a: 0 },
+      { p: "", h: "", q: "", r: "", a: 0 },
+      { p: "", h: "", q: "", r: "", a: 0 }
+    ]);
     setSignatureUrl(d.signatureUrl || localStorage.getItem('svs_sig') || "");
     setActiveSec('create');
   };
 
-  const delBill = async (i: number) => {
-    if (!confirm('Delete this bill?')) return;
-    const target = bills[i];
-    const newBills = [...bills];
-    newBills.splice(i, 1);
+  const delBill = async (target: any) => {
+    if (!target || !target.no) return;
+    if (!confirm(`Delete bill #${target.no} (${(target.type || 'gst').toUpperCase()})?`)) return;
+    
+    const newBills = bills.filter(b => !(String(b.no).trim() === String(target.no).trim() && String(b.type).toLowerCase().trim() === String(target.type).toLowerCase().trim()));
     setBills(newBills);
-    try { localStorage.setItem('svs4', JSON.stringify(newBills)) } catch (e) {}
+    try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
 
     // Central server delete
-    if (target && target.no) {
-      setSyncStatus('syncing');
-      try {
-        const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
-          method: 'DELETE',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && Array.isArray(data.bills)) {
-            setBills(data.bills);
-            try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
-            setSyncStatus('synced');
-            setLastSyncedTime(new Date().toLocaleTimeString());
-          }
+    setSyncStatus('syncing');
+    try {
+      const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.bills)) {
+          setBills(data.bills);
+          try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
+          setSyncStatus('synced');
+          setLastSyncedTime(new Date().toLocaleTimeString());
         }
-      } catch (e) {
-        setSyncStatus('offline');
       }
+    } catch (e) {
+      setSyncStatus('offline');
     }
   };
 
@@ -3705,10 +3718,9 @@ export default function App() {
               {bills.length === 0 ? "No saved bills yet." : "No bills match your current search/filter criteria."}
             </div>
           ) : (
-            filteredBills.map((b) => {
-              const i = b.originalIndex;
+            filteredBills.map((b, idx) => {
               return (
-                <div key={i} className="hist-item" onClick={() => loadBill(i)}>
+                <div key={b.id || `${b.type}_${b.no}_${idx}`} className="hist-item" onClick={() => loadBill(b)}>
                   <div style={{ flex: 1 }}>
                     <div className="hi-no">#{b.no}
                       {b.type === 'gst' && <span className="tag tag-gst">GST</span>}
@@ -3719,9 +3731,9 @@ export default function App() {
                   </div>
                   <div className="hi-amt">Rs.{fmtD(b.grand).replace('Rs. ', '')}</div>
                   <div style={{ display: "flex", gap: "4px" }} onClick={e => e.stopPropagation()}>
-                    <button className="btn btn-sm" onClick={() => loadBill(i)}>Edit</button>
-                    <button className="btn btn-green btn-sm" onClick={() => { loadBill(i); setTimeout(() => setActiveSec('preview'), 100); }}>PDF</button>
-                    <button className="btn btn-red btn-sm" onClick={() => delBill(i)}>Del</button>
+                    <button className="btn btn-sm" onClick={() => loadBill(b)}>Edit</button>
+                    <button className="btn btn-green btn-sm" onClick={() => { loadBill(b); setTimeout(() => setActiveSec('preview'), 100); }}>PDF</button>
+                    <button className="btn btn-red btn-sm" onClick={() => delBill(b)}>Del</button>
                   </div>
                 </div>
               );
