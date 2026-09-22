@@ -84,7 +84,6 @@ function sanitizeBill(b: any): any {
     sgst,
     grand,
     saved: b.saved ? String(b.saved).trim() : new Date().toISOString(),
-    signatureUrl: b.signatureUrl ? String(b.signatureUrl).trim() : "",
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
 }

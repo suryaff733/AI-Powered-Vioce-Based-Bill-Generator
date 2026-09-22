@@ -27,7 +27,6 @@ export interface InvoiceData {
   cgst?: number;
   sgst?: number;
   grand?: number;
-  signatureUrl?: string;
 }
 
 export function fmtR(n: number = 0): string {
@@ -45,15 +44,6 @@ export function esc(s: unknown): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function safeImageSrc(url?: string): string {
-  if (!url) return '';
-  const trimmed = url.trim();
-  if (trimmed.startsWith('https://') || trimmed.startsWith('http://') || trimmed.startsWith('data:image/')) {
-    return esc(trimmed);
-  }
-  return '';
 }
 
 export function numberToWords(num: number = 0): string {
@@ -149,8 +139,6 @@ export function invHTML_simple(d: InvoiceData): string {
     '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">GRAND TOTAL</td>' +
     '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 18px;">' + fmtR(d.grand || 0) + '/-</td></tr>';
 
-  const safeSig = safeImageSrc(d.signatureUrl);
-
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
     'body{margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif}' +
     '.inv{border:none;font-size:14px;color:#000;width:794px;height:1123px;box-sizing:border-box;margin:0 auto;display:flex;flex-direction:column;background:#fff;position:relative;padding:12px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.1)}' +
@@ -239,10 +227,7 @@ export function invHTML_simple(d: InvoiceData): string {
     '</div>' +
     '<div style="display:flex;flex-direction:column;align-items:flex-end;">' +
     '<div style="color:#E63900;font-size:14px;font-weight:700;margin-bottom:4px;text-align:right;">For SRI VENKATA SURYA ELECTRICAL<br>&amp; MOTOR MECHANICAL WORKS</div>' +
-    (safeSig 
-      ? '<img src="' + safeSig + '" alt="Signature" style="max-height:45px;max-width:140px;object-fit:contain;margin:4px 0;" />'
-      : '<div style="height:30px;"></div>'
-    ) +
+    '<div style="height:35px;"></div>' +
     '<div style="color:#000;font-size:12px;font-weight:700;">Authorised Signatory</div>' +
     '</div>' +
     '</div>' +
@@ -267,8 +252,6 @@ export function invHTML(d: InvoiceData): string {
   }
   totHtml += '<div style="display:flex;justify-content:space-between;padding:8px 10px;font-size:13px;font-weight:700;color:#003399;background:#f0f4ff"><span>GRAND TOTAL</span><span>' + fmtR(d.grand || 0) + '</span></div>';
 
-  const safeSig = safeImageSrc(d.signatureUrl);
-
   let stampHtml = '';
   if (d.type === 'gst') {
     stampHtml = '<div style="display:flex;gap:30px;align-items:flex-end;">' +
@@ -276,12 +259,7 @@ export function invHTML(d: InvoiceData): string {
       '<div style="position:relative;display:inline-block;text-align:center;color:#003399;font-family:Arial,sans-serif;line-height:1.2;font-size:10px;">' +
       '<div style="font-weight:700;font-size:13px;">For SRI VENKATA SURYA</div>' +
       '<div style="font-weight:700;">Electrical &amp; Motor Mechanical Works</div>' +
-      '<div style="height:40px;display:flex;align-items:center;justify-content:center;margin:4px 0;">' +
-        (safeSig 
-          ? '<img src="' + safeSig + '" alt="Signature" style="max-height:40px;max-width:120px;object-fit:contain;" />' 
-          : '<div style="height:40px;"></div>'
-        ) +
-      '</div>' +
+      '<div style="height:35px;"></div>' +
       '<div>Authorised Signatory</div>' +
       '<div style="font-weight:700;">S. Venkateshwar Rao</div>' +
       '<div>Proprietor</div>' +
