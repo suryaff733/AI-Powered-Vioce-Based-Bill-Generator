@@ -960,8 +960,6 @@ export default function App() {
   const [applyGst, setApplyGst] = useState(true);
   const [discount, setDiscount] = useState(0);
   const [bills, setBills] = useState<any[]>([]);
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced');
-  const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
 
   // Dynamic Catalog States
   const [catalogItems, setCatalogItems] = useState<any[]>(defaultCatalog);
@@ -2523,22 +2521,7 @@ export default function App() {
     }
   }, [fsmState, fsmContext, chatMessages]);
 
-  const syncCatalogWithServer = async () => {
-    try {
-      const res = await fetch('/api/catalog');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.catalog) && data.catalog.length > 0) {
-          setCatalogItems(data.catalog);
-          try { localStorage.setItem('svs_catalog', JSON.stringify(data.catalog)); } catch (e) {}
-        }
-      }
-    } catch (e) {
-      console.warn('Catalog sync offline/failed:', e);
-    }
-  };
-
-  const handleAddCatalogProduct = async () => {
+  const handleAddCatalogProduct = () => {
     if (!newProdName.trim()) {
       alert('Please enter a product name');
       return;
@@ -2548,94 +2531,25 @@ export default function App() {
       defaultRate: Number(newProdRate) || 0,
       hsn: newProdHsn.trim(),
     };
-    try {
-      const res = await fetch('/api/catalog', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.catalog)) {
-          setCatalogItems(data.catalog);
-          try { localStorage.setItem('svs_catalog', JSON.stringify(data.catalog)); } catch (e) {}
-          setNewProdName('');
-          setNewProdRate('');
-          setNewProdHsn('');
-        }
-      }
-    } catch (e) {
-      alert('Failed to save product to catalog');
+    const updated = [...catalogItems];
+    const idx = updated.findIndex(c => c && c.name && c.name.toLowerCase() === item.name.toLowerCase());
+    if (idx >= 0) {
+      updated[idx] = { ...updated[idx], ...item };
+    } else {
+      updated.push(item);
     }
+    setCatalogItems(updated);
+    try { localStorage.setItem('svs_catalog', JSON.stringify(updated)); } catch (e) {}
+    setNewProdName('');
+    setNewProdRate('');
+    setNewProdHsn('');
   };
 
-  const handleDeleteCatalogProduct = async (name: string) => {
+  const handleDeleteCatalogProduct = (name: string) => {
     if (!confirm(`Delete "${name}" from catalog?`)) return;
-    try {
-      const res = await fetch(`/api/catalog?name=${encodeURIComponent(name)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.catalog)) {
-          setCatalogItems(data.catalog);
-          try { localStorage.setItem('svs_catalog', JSON.stringify(data.catalog)); } catch (e) {}
-        }
-      }
-    } catch (e) {
-      alert('Failed to delete product from catalog');
-    }
-  };
-
-  const syncWithCentralServer = async (localBillsOverride?: any[]) => {
-    setSyncStatus('syncing');
-    syncCatalogWithServer();
-    try {
-      if (localBillsOverride && Array.isArray(localBillsOverride)) {
-        const res = await fetch('/api/bills', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(localBillsOverride),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && Array.isArray(data.bills)) {
-            setBills(data.bills);
-            try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
-            setSyncStatus('synced');
-            setLastSyncedTime(new Date().toLocaleTimeString());
-
-            const nums = data.bills.map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10)).filter((n: number) => !isNaN(n));
-            if (nums.length) {
-              setNo(String(Math.max(...nums) + 1).padStart(3, '0'));
-            }
-            return data.bills;
-          }
-        }
-      } else {
-        const res = await fetch('/api/bills');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && Array.isArray(data.bills)) {
-            setBills(data.bills);
-            try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
-            setSyncStatus('synced');
-            setLastSyncedTime(new Date().toLocaleTimeString());
-
-            const nums = data.bills.map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10)).filter((n: number) => !isNaN(n));
-            if (nums.length) {
-              setNo(String(Math.max(...nums) + 1).padStart(3, '0'));
-            }
-            return data.bills;
-          }
-        }
-      }
-      setSyncStatus('error');
-    } catch (e) {
-      console.warn('Central server sync offline/failed:', e);
-      setSyncStatus('offline');
-    }
+    const updated = catalogItems.filter(c => c && c.name && c.name.toLowerCase() !== name.toLowerCase());
+    setCatalogItems(updated);
+    try { localStorage.setItem('svs_catalog', JSON.stringify(updated)); } catch (e) {}
   };
 
   const exportDataBackup = () => {
@@ -2656,12 +2570,13 @@ export default function App() {
     const fileReader = new FileReader();
     if (e.target.files && e.target.files[0]) {
       fileReader.readAsText(e.target.files[0], "UTF-8");
-      fileReader.onload = async (event) => {
+      fileReader.onload = (event) => {
         try {
           const imported = JSON.parse(event.target?.result as string);
           if (Array.isArray(imported)) {
-            await syncWithCentralServer(imported);
-            alert(`Successfully imported and merged ${imported.length} bills into central storage!`);
+            setBills(imported);
+            try { localStorage.setItem('svs4', JSON.stringify(imported)); } catch (e) {}
+            alert(`Successfully imported ${imported.length} bills from backup!`);
           } else {
             alert('Invalid backup file format. Expected a JSON array of bills.');
           }
@@ -2676,8 +2591,19 @@ export default function App() {
     try {
       const saved = JSON.parse(localStorage.getItem('svs4') || '[]');
       setBills(saved);
-      const nums = saved.map((b: any) => parseInt(b.no)).filter((n: number) => !isNaN(n));
+      const nums = saved.map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10)).filter((n: number) => !isNaN(n));
       setNo(String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, '0'));
+      
+      const savedCatalog = localStorage.getItem('svs_catalog');
+      if (savedCatalog) {
+        try {
+          const parsedCat = JSON.parse(savedCatalog);
+          if (Array.isArray(parsedCat) && parsedCat.length > 0) {
+            setCatalogItems(parsedCat);
+          }
+        } catch (e) {}
+      }
+
       const savedSig = localStorage.getItem('svs_sig');
       if (savedSig) setSignatureUrl(savedSig);
       const savedDsc = localStorage.getItem('svs_dsc');
@@ -2699,22 +2625,6 @@ export default function App() {
       }
     } catch (e) {}
     setDate(new Date().toISOString().split('T')[0]);
-
-    syncWithCentralServer();
-
-    const intervalId = setInterval(() => {
-      syncWithCentralServer();
-    }, 10000);
-
-    const handleOnline = () => syncWithCentralServer();
-    window.addEventListener('focus', handleOnline);
-    window.addEventListener('online', handleOnline);
-
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener('focus', handleOnline);
-      window.removeEventListener('online', handleOnline);
-    };
   }, []);
 
   const addRow = (p='', h='', q='', r='', a=0) => {
@@ -2927,7 +2837,7 @@ export default function App() {
     setTestingConnection(false);
   };
 
-  const saveBill = async () => {
+  const saveBill = () => {
     const d = getData();
     const newBills = [...bills];
     const idx = newBills.findIndex(b => String(b.no).trim() === String(d.no).trim() && String(b.type).toLowerCase().trim() === String(d.type).toLowerCase().trim());
@@ -2937,27 +2847,6 @@ export default function App() {
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
     setActiveSec('history');
-
-    // Central server save
-    setSyncStatus('syncing');
-    try {
-      const res = await fetch('/api/bills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(d),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.bills)) {
-          setBills(data.bills);
-          try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
-          setSyncStatus('synced');
-          setLastSyncedTime(new Date().toLocaleTimeString());
-        }
-      }
-    } catch (e) {
-      setSyncStatus('offline');
-    }
   };
 
   const loadBill = (d: any) => {
@@ -2984,32 +2873,13 @@ export default function App() {
     setActiveSec('create');
   };
 
-  const delBill = async (target: any) => {
+  const delBill = (target: any) => {
     if (!target || !target.no) return;
     if (!confirm(`Delete bill #${target.no} (${(target.type || 'gst').toUpperCase()})?`)) return;
     
     const newBills = bills.filter(b => !(String(b.no).trim() === String(target.no).trim() && String(b.type).toLowerCase().trim() === String(target.type).toLowerCase().trim()));
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
-
-    // Central server delete
-    setSyncStatus('syncing');
-    try {
-      const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.bills)) {
-          setBills(data.bills);
-          try { localStorage.setItem('svs4', JSON.stringify(data.bills)); } catch (e) {}
-          setSyncStatus('synced');
-          setLastSyncedTime(new Date().toLocaleTimeString());
-        }
-      }
-    } catch (e) {
-      setSyncStatus('offline');
-    }
   };
 
   const resetForm = () => {
@@ -3565,111 +3435,77 @@ export default function App() {
 
       {activeSec === 'history' && (
         <div id="sec-history">
-          {/* Centralized Storage & Catalog Toolbar */}
-          <div className="card" style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div
-                  style={{
-                    width: "10px",
-                    height: "10px",
-                    borderRadius: "50%",
-                    backgroundColor: syncStatus === 'synced' ? '#22c55e' : syncStatus === 'syncing' ? '#eab308' : '#ef4444',
-                    boxShadow: syncStatus === 'synced' ? '0 0 8px #22c55e' : 'none'
-                  }}
-                />
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: "13px", color: "#1e293b" }}>
-                    {syncStatus === 'synced' && 'Centralized Multi-Device Storage Active'}
-                    {syncStatus === 'syncing' && 'Syncing bills & catalog across devices...'}
-                    {syncStatus === 'offline' && 'Offline Mode (Saved to local browser storage)'}
-                    {syncStatus === 'error' && 'Central Sync Warning (Using local copy)'}
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#64748b" }}>
-                    {lastSyncedTime ? `Last synced at ${lastSyncedTime}` : 'All devices automatically share central bills & catalog'}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                <button
-                  className="btn btn-sm"
-                  onClick={() => setShowCatalogModal(true)}
-                  style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#0f766e", color: "#fff", borderColor: "#0f766e" }}
-                >
-                  📦 Product Catalog ({catalogItems.length})
-                </button>
-                <button
-                  className="btn btn-sm"
-                  onClick={() => syncWithCentralServer()}
-                  disabled={syncStatus === 'syncing'}
-                  style={{ fontSize: "12px", padding: "4px 10px" }}
-                >
-                  {syncStatus === 'syncing' ? '🔄 Syncing...' : '🔄 Sync Now'}
-                </button>
-                <button
-                  className="btn btn-sm"
-                  onClick={exportDataBackup}
-                  style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#0284c7", color: "#fff", borderColor: "#0284c7" }}
-                >
-                  📥 Export Backup
-                </button>
-                <label
-                  className="btn btn-sm"
-                  style={{ fontSize: "12px", padding: "4px 10px", backgroundColor: "#4f46e5", color: "#fff", borderColor: "#4f46e5", cursor: "pointer", margin: 0 }}
-                >
-                  📤 Import Backup
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={importDataBackup}
-                    style={{ display: "none" }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Search & Multi-Filter Control Card */}
+          {/* Search, Filter & Utility Toolbar Card */}
           <div className="card" style={{ marginBottom: "16px", padding: "14px 18px" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {/* Row 1: Search Query & Type Filter */}
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                <div style={{ flex: 1, minWidth: "220px", position: "relative" }}>
-                  <input
-                    type="text"
-                    placeholder="Search by customer name, bill no, or product item..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    style={{ width: "100%", paddingLeft: "30px" }}
-                  />
-                  <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", opacity: 0.5, fontSize: "14px" }}>🔍</span>
+              {/* Row 1: Search Query, Type Filter & Utility Buttons */}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: "10px", flex: 1, minWidth: "260px", alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: "200px", position: "relative" }}>
+                    <input
+                      type="text"
+                      placeholder="Search by customer name, bill no, or product item..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{ width: "100%", paddingLeft: "30px" }}
+                    />
+                    <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", opacity: 0.5, fontSize: "14px" }}>🔍</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    <button
+                      className={`btn btn-sm ${filterType === 'all' ? 'btn-blue' : ''}`}
+                      onClick={() => setFilterType('all')}
+                    >
+                      All ({bills.length})
+                    </button>
+                    <button
+                      className={`btn btn-sm ${filterType === 'gst' ? 'btn-blue' : ''}`}
+                      onClick={() => setFilterType('gst')}
+                    >
+                      GST
+                    </button>
+                    <button
+                      className={`btn btn-sm ${filterType === 'quotation' ? 'btn-blue' : ''}`}
+                      onClick={() => setFilterType('quotation')}
+                    >
+                      Quotation
+                    </button>
+                    <button
+                      className={`btn btn-sm ${filterType === 'cash' ? 'btn-blue' : ''}`}
+                      onClick={() => setFilterType('cash')}
+                    >
+                      Cash
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: "4px" }}>
+
+                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                   <button
-                    className={`btn btn-sm ${filterType === 'all' ? 'btn-blue' : ''}`}
-                    onClick={() => setFilterType('all')}
+                    className="btn btn-sm"
+                    onClick={() => setShowCatalogModal(true)}
+                    style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#0f766e", color: "#fff", borderColor: "#0f766e" }}
                   >
-                    All ({bills.length})
+                    📦 Catalog ({catalogItems.length})
                   </button>
                   <button
-                    className={`btn btn-sm ${filterType === 'gst' ? 'btn-blue' : ''}`}
-                    onClick={() => setFilterType('gst')}
+                    className="btn btn-sm"
+                    onClick={exportDataBackup}
+                    style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#0284c7", color: "#fff", borderColor: "#0284c7" }}
                   >
-                    GST
+                    📥 Export
                   </button>
-                  <button
-                    className={`btn btn-sm ${filterType === 'quotation' ? 'btn-blue' : ''}`}
-                    onClick={() => setFilterType('quotation')}
+                  <label
+                    className="btn btn-sm"
+                    style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#4f46e5", color: "#fff", borderColor: "#4f46e5", cursor: "pointer", margin: 0 }}
                   >
-                    Quotation
-                  </button>
-                  <button
-                    className={`btn btn-sm ${filterType === 'cash' ? 'btn-blue' : ''}`}
-                    onClick={() => setFilterType('cash')}
-                  >
-                    Cash
-                  </button>
+                    📤 Import
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={importDataBackup}
+                      style={{ display: "none" }}
+                    />
+                  </label>
                 </div>
               </div>
 
