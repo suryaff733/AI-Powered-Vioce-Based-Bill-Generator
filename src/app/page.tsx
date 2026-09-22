@@ -1006,9 +1006,16 @@ export default function App() {
   const pushToUndo = () => {
     const snapshot = {
       btype,
+      no,
+      date,
+      po,
+      transport,
       cname,
       caddr,
       cgstin,
+      sname,
+      saddr,
+      sgstin,
       applyGst,
       discount,
       rows: JSON.parse(JSON.stringify(rows))
@@ -2030,17 +2037,25 @@ export default function App() {
           
           if (newUndoStack.length > 0) {
             const prevSnapshot = newUndoStack[newUndoStack.length - 1];
-            setBtype(prevSnapshot.btype);
-            setCname(prevSnapshot.cname);
-            setCaddr(prevSnapshot.caddr);
-            setCgstin(prevSnapshot.cgstin);
-            setApplyGst(prevSnapshot.applyGst);
+            if (prevSnapshot.btype) setBtype(prevSnapshot.btype);
+            if (prevSnapshot.no !== undefined) setNo(prevSnapshot.no);
+            if (prevSnapshot.date !== undefined) setDate(prevSnapshot.date);
+            if (prevSnapshot.po !== undefined) setPo(prevSnapshot.po);
+            if (prevSnapshot.transport !== undefined) setTransport(prevSnapshot.transport);
+            if (prevSnapshot.cname !== undefined) setCname(prevSnapshot.cname);
+            if (prevSnapshot.caddr !== undefined) setCaddr(prevSnapshot.caddr);
+            if (prevSnapshot.cgstin !== undefined) setCgstin(prevSnapshot.cgstin);
+            if (prevSnapshot.sname !== undefined) setSname(prevSnapshot.sname);
+            if (prevSnapshot.saddr !== undefined) setSaddr(prevSnapshot.saddr);
+            if (prevSnapshot.sgstin !== undefined) setSgstin(prevSnapshot.sgstin);
+            if (prevSnapshot.applyGst !== undefined) setApplyGst(prevSnapshot.applyGst);
             setDiscount(prevSnapshot.discount !== undefined ? prevSnapshot.discount : 0);
-            setRows(prevSnapshot.rows);
-            nextContext.rows = prevSnapshot.rows;
-            nextContext.cname = prevSnapshot.cname;
-            nextContext.caddr = prevSnapshot.caddr;
-            nextContext.applyGst = prevSnapshot.applyGst;
+            if (prevSnapshot.rows) setRows(prevSnapshot.rows);
+            
+            nextContext.rows = prevSnapshot.rows || [];
+            nextContext.cname = prevSnapshot.cname || "";
+            nextContext.caddr = prevSnapshot.caddr || "";
+            nextContext.applyGst = prevSnapshot.applyGst !== undefined ? prevSnapshot.applyGst : true;
             nextContext.discount = prevSnapshot.discount !== undefined ? prevSnapshot.discount : 0;
           }
           break;
@@ -2052,17 +2067,25 @@ export default function App() {
             setRedoStack(newRedoStack);
             
             if (nextSnapshot) {
-              setBtype(nextSnapshot.btype);
-              setCname(nextSnapshot.cname);
-              setCaddr(nextSnapshot.caddr);
-              setCgstin(nextSnapshot.cgstin);
-              setApplyGst(nextSnapshot.applyGst);
+              if (nextSnapshot.btype) setBtype(nextSnapshot.btype);
+              if (nextSnapshot.no !== undefined) setNo(nextSnapshot.no);
+              if (nextSnapshot.date !== undefined) setDate(nextSnapshot.date);
+              if (nextSnapshot.po !== undefined) setPo(nextSnapshot.po);
+              if (nextSnapshot.transport !== undefined) setTransport(nextSnapshot.transport);
+              if (nextSnapshot.cname !== undefined) setCname(nextSnapshot.cname);
+              if (nextSnapshot.caddr !== undefined) setCaddr(nextSnapshot.caddr);
+              if (nextSnapshot.cgstin !== undefined) setCgstin(nextSnapshot.cgstin);
+              if (nextSnapshot.sname !== undefined) setSname(nextSnapshot.sname);
+              if (nextSnapshot.saddr !== undefined) setSaddr(nextSnapshot.saddr);
+              if (nextSnapshot.sgstin !== undefined) setSgstin(nextSnapshot.sgstin);
+              if (nextSnapshot.applyGst !== undefined) setApplyGst(nextSnapshot.applyGst);
               setDiscount(nextSnapshot.discount !== undefined ? nextSnapshot.discount : 0);
-              setRows(nextSnapshot.rows);
-              nextContext.rows = nextSnapshot.rows;
-              nextContext.cname = nextSnapshot.cname;
-              nextContext.caddr = nextSnapshot.caddr;
-              nextContext.applyGst = nextSnapshot.applyGst;
+              if (nextSnapshot.rows) setRows(nextSnapshot.rows);
+              
+              nextContext.rows = nextSnapshot.rows || [];
+              nextContext.cname = nextSnapshot.cname || "";
+              nextContext.caddr = nextSnapshot.caddr || "";
+              nextContext.applyGst = nextSnapshot.applyGst !== undefined ? nextSnapshot.applyGst : true;
               nextContext.discount = nextSnapshot.discount !== undefined ? nextSnapshot.discount : 0;
             }
           }

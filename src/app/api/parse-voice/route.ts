@@ -87,45 +87,57 @@ Return EXACTLY a JSON response with the schema:
 
 Do not include any Markdown headers, \`\`\`json wrappers, or chat description. Return purely the raw JSON string.`;
 
-    let response;
+    let response: Response | undefined;
     let retries = 3;
     let delay = 1000;
+    const modelName = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+    const modelsToTry = [modelName, "gemini-1.5-flash"];
 
-    for (let i = 0; i < retries; i++) {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
+    for (const model of modelsToTry) {
+      for (let i = 0; i < retries; i++) {
+        try {
+          response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [
                   {
-                    text: systemPrompt,
+                    parts: [
+                      {
+                        text: systemPrompt,
+                      },
+                    ],
                   },
                 ],
-              },
-            ],
-            generationConfig: {
-              responseMimeType: "application/json",
-            },
-          }),
-        }
-      );
+                generationConfig: {
+                  responseMimeType: "application/json",
+                },
+              }),
+            }
+          );
 
-      if (response.ok) {
-        break;
+          if (response.ok) {
+            break;
+          }
+
+          if (response.status === 503 || response.status === 429) {
+            console.warn(`Gemini API (${model}) returned ${response.status}. Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            delay *= 2;
+          } else {
+            // Non-transient error, break retry loop to try next fallback model if 404
+            break;
+          }
+        } catch (fetchErr) {
+          console.error(`Fetch error with model ${model}:`, fetchErr);
+        }
       }
 
-      // If it's a transient server load (503) or rate limit (429), wait and retry
-      if (response.status === 503 || response.status === 429) {
-        console.warn(`Gemini API returned ${response.status}. Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        delay *= 2;
-      } else {
+      if (response && response.ok) {
         break;
       }
     }

@@ -21,7 +21,10 @@ export function useSpeechRecognition() {
         rec.continuous = true;
         rec.interimResults = false;
         
-        const savedLang = localStorage.getItem("svs_voice_lang") || "te-IN";
+        let savedLang = "te-IN";
+        try {
+          savedLang = localStorage.getItem("svs_voice_lang") || "te-IN";
+        } catch (e) {}
         setLanguageState(savedLang);
         rec.lang = savedLang;
 
@@ -31,9 +34,6 @@ export function useSpeechRecognition() {
         };
 
         rec.onresult = (event: any) => {
-          if (typeof window !== "undefined" && window.speechSynthesis && window.speechSynthesis.speaking) {
-            return;
-          }
           let currentTranscript = "";
           let aggregateConfidence = 0;
           let resultCount = 0;
@@ -52,10 +52,10 @@ export function useSpeechRecognition() {
         };
 
         rec.onerror = (event: any) => {
-          console.error("Speech recognition error:", event.error);
           if (event.error === "no-speech") {
             return;
           }
+          console.error("Speech recognition error:", event.error);
           setError(event.error);
           setIsListening(false);
         };
@@ -65,6 +65,12 @@ export function useSpeechRecognition() {
         };
 
         recognitionRef.current = rec;
+
+        return () => {
+          try {
+            rec.abort();
+          } catch (e) {}
+        };
       }
     }
   }, []);
@@ -72,13 +78,17 @@ export function useSpeechRecognition() {
   const startListening = () => {
     if (!isSupported || !recognitionRef.current) return;
     try {
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
       setError(null);
-      // Synchronize language property right before start
       recognitionRef.current.lang = language;
       recognitionRef.current.start();
     } catch (err: any) {
-      console.error("Failed to start speech recognition:", err);
-      setError(err.message || "Could not start recognition");
+      if (err.name !== "InvalidStateError") {
+        console.error("Failed to start speech recognition:", err);
+        setError(err.message || "Could not start recognition");
+      }
     }
   };
 
@@ -99,7 +109,9 @@ export function useSpeechRecognition() {
 
   const changeLanguage = (lang: string) => {
     setLanguageState(lang);
-    localStorage.setItem("svs_voice_lang", lang);
+    try {
+      localStorage.setItem("svs_voice_lang", lang);
+    } catch (e) {}
     if (recognitionRef.current) {
       recognitionRef.current.lang = lang;
     }
@@ -118,4 +130,3 @@ export function useSpeechRecognition() {
     changeLanguage,
   };
 }
-

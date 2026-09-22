@@ -1,16 +1,62 @@
-export function fmtR(n: number) {
+export interface InvoiceRow {
+  p?: string;
+  h?: string;
+  q?: string | number;
+  r?: string | number;
+  a?: number;
+}
+
+export interface InvoiceData {
+  type: string;
+  no?: string;
+  date?: string;
+  po?: string;
+  transport?: string;
+  cname?: string;
+  caddr?: string;
+  cgstin?: string;
+  sname?: string;
+  saddr?: string;
+  sgstin?: string;
+  rows?: InvoiceRow[];
+  applyGst?: boolean;
+  sub?: number;
+  discount?: number;
+  discountAmt?: number;
+  subAfterDiscount?: number;
+  cgst?: number;
+  sgst?: number;
+  grand?: number;
+  signatureUrl?: string;
+}
+
+export function fmtR(n: number = 0): string {
   return (Math.round(n * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function fmtD(n: number) {
+export function fmtD(n: number = 0): string {
   return 'Rs. ' + fmtR(n);
 }
 
-export function esc(s: string) {
-  return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export function esc(s: unknown): string {
+  return (s === undefined || s === null ? '' : String(s))
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-export function numberToWords(num: number): string {
+function safeImageSrc(url?: string): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('https://') || trimmed.startsWith('http://') || trimmed.startsWith('data:image/')) {
+    return esc(trimmed);
+  }
+  return '';
+}
+
+export function numberToWords(num: number = 0): string {
   if (num === 0) return "Zero";
   const a = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
   const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
@@ -52,34 +98,36 @@ export function numberToWords(num: number): string {
   return res + " Only";
 }
 
-export function invHTML_simple(d: any) {
-  var title = d.type === 'quotation' ? 'QUOTATION' : 'CASH MEMO / BILL';
-  var dateStr = (d.date || '').split('-').reverse().join('/');
+export function invHTML_simple(d: InvoiceData): string {
+  const title = d.type === 'quotation' ? 'QUOTATION' : 'CASH MEMO / BILL';
+  const dateStr = (d.date || '').split('-').reverse().join('/');
 
-  var itemRows = (d.rows || []).map(function (it: any, i: number) {
-    var q = parseFloat(it.q) || 0, r = parseFloat(it.r) || 0, a = parseFloat(it.a) || 0;
-    var rowAmt = (q > 0 && r > 0) ? q * r : a;
+  const itemRows = (d.rows || []).map(function (it: InvoiceRow, i: number) {
+    const q = typeof it.q === "number" ? it.q : parseFloat(it.q || "") || 0;
+    const r = typeof it.r === "number" ? it.r : parseFloat(it.r || "") || 0;
+    const a = typeof it.a === "number" ? it.a : parseFloat(String(it.a || "")) || 0;
+    const rowAmt = (q > 0 && r > 0) ? q * r : a;
     if (!it.p && !it.h && !it.q && !it.r && rowAmt === 0) return '';
     return '<tr style="vertical-align: top;"><td style="text-align:center;padding:10px 8px;border-right:1px solid #003399;font-size:15px;">' + (i + 1) + '</td>' +
       '<td style="padding:10px 8px;border-right:1px solid #003399;text-align:left;font-size:15px;">' + esc(it.p || '') + '</td>' +
       '<td style="text-align:center;padding:10px 8px;border-right:1px solid #003399;font-size:14px;">' + esc(it.h || '') + '</td>' +
-      '<td style="text-align:center;padding:10px 8px;border-right:1px solid #003399;font-size:14px;">' + (it.q || '') + '</td>' +
+      '<td style="text-align:center;padding:10px 8px;border-right:1px solid #003399;font-size:14px;">' + esc(it.q || '') + '</td>' +
       '<td style="text-align:right;padding:10px 8px;border-right:1px solid #003399;font-size:14px;">' + (r ? fmtR(r) : '') + '</td>' +
       '<td style="text-align:right;padding:10px 8px;font-size:15px;">' + (rowAmt ? fmtR(rowAmt) + '/-' : '') + '</td></tr>';
   }).join('');
 
-  var totals = '<tr style="font-weight: 700; color: #CC0000; font-size: 14px;">' +
+  let totals = '<tr style="font-weight: 700; color: #CC0000; font-size: 14px;">' +
     '<td style="border-right: 1px solid #003399;"></td>' +
     '<td style="border-right: 1px solid #003399;"></td>' +
     '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">TOTAL</td>' +
-    '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">' + fmtR(d.sub) + '/-</td></tr>';
+    '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">' + fmtR(d.sub || 0) + '/-</td></tr>';
 
-  if (d.discount > 0) {
+  if ((d.discount || 0) > 0) {
     totals += '<tr style="font-weight: 700; color: #666; font-size: 14px;">' +
       '<td style="border-right: 1px solid #003399;"></td>' +
       '<td style="border-right: 1px solid #003399;"></td>' +
-      '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">DISCOUNT (' + d.discount + '%)</td>' +
-      '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">- ' + fmtR(d.discountAmt) + '/-</td></tr>';
+      '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">DISCOUNT (' + esc(d.discount) + '%)</td>' +
+      '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">- ' + fmtR(d.discountAmt || 0) + '/-</td></tr>';
   }
 
   if (d.applyGst) {
@@ -87,19 +135,21 @@ export function invHTML_simple(d: any) {
       '<td style="border-right: 1px solid #003399;"></td>' +
       '<td style="border-right: 1px solid #003399;"></td>' +
       '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">CGST @ 9%</td>' +
-      '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">' + fmtR(d.cgst) + '/-</td></tr>';
+      '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">' + fmtR(d.cgst || 0) + '/-</td></tr>';
     totals += '<tr style="font-weight: 700; color: #CC0000; font-size: 14px;">' +
       '<td style="border-right: 1px solid #003399;"></td>' +
       '<td style="border-right: 1px solid #003399;"></td>' +
       '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">SGST @ 9%</td>' +
-      '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">' + fmtR(d.sgst) + '/-</td></tr>';
+      '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 16px;">' + fmtR(d.sgst || 0) + '/-</td></tr>';
   }
 
   totals += '<tr style="font-weight: 700; color: #CC0000; font-size: 14px;">' +
     '<td style="border-right: 1px solid #003399;"></td>' +
     '<td style="border-right: 1px solid #003399;"></td>' +
     '<td colspan="3" style="border-top: 1px solid #003399; border-right: 1px solid #003399; padding: 8px 10px; text-align: left;">GRAND TOTAL</td>' +
-    '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 18px;">' + fmtR(d.grand) + '/-</td></tr>';
+    '<td style="border-top: 1px solid #003399; padding: 8px 10px; text-align: right; color: #000; font-size: 18px;">' + fmtR(d.grand || 0) + '/-</td></tr>';
+
+  const safeSig = safeImageSrc(d.signatureUrl);
 
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
     'body{margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif}' +
@@ -112,7 +162,7 @@ export function invHTML_simple(d: any) {
 
     '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#003399;align-items:flex-start;">' +
     '<div>Prop. S. Venkateshwara Rao<br>GSTIN : 36BXYPS4294L1Z7</div>' +
-    '<div style="font-size:18px;text-decoration:underline;">' + title + '</div>' +
+    '<div style="font-size:18px;text-decoration:underline;">' + esc(title) + '</div>' +
     '<div style="text-align:right;">Cell : 9848693461<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: 8074312463</div>' +
     '</div>' +
 
@@ -126,13 +176,13 @@ export function invHTML_simple(d: any) {
     '<div style="border-top:1px solid #003399;margin:16px 0;"></div>' +
 
     '<div style="display:flex;justify-content:space-between;font-size:18px;margin-bottom:16px;padding:0 8px;">' +
-    '<div style="color:#CC0000;font-weight:700;">No. <span style="font-size:24px;margin-left:8px;">' + esc(d.no) + '</span></div>' +
+    '<div style="color:#CC0000;font-weight:700;">No. <span style="font-size:24px;margin-left:8px;">' + esc(d.no || '') + '</span></div>' +
     '<div style="color:#003399;font-weight:700;">Date : <span style="color:#000;border-bottom:1px dashed #003399;padding-bottom:2px;margin-left:4px;min-width:140px;display:inline-block;text-align:center;">' + esc(dateStr) + '</span></div>' +
     '</div>' +
 
     '<div style="font-size:18px;color:#003399;margin-bottom:8px;padding:0 8px;display:flex;align-items:flex-end;">' +
     '<span style="white-space:nowrap;margin-right:12px;">M/s.</span>' +
-    '<div style="border-bottom:1px solid #003399;flex:1;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:20px;padding-bottom:2px;padding-left:8px;">' + esc(d.cname) + '</div>' +
+    '<div style="border-bottom:1px solid #003399;flex:1;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:20px;padding-bottom:2px;padding-left:8px;">' + esc(d.cname || '') + '</div>' +
     '</div>' +
     '<div style="font-size:18px;color:#003399;margin-bottom:20px;padding:0 8px;display:flex;align-items:flex-end;">' +
     '<div style="border-bottom:1px solid #003399;width:100%;height:24px;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:20px;padding-bottom:2px;padding-left:8px;">' + esc(d.caddr || '') + '</div>' +
@@ -189,8 +239,8 @@ export function invHTML_simple(d: any) {
     '</div>' +
     '<div style="display:flex;flex-direction:column;align-items:flex-end;">' +
     '<div style="color:#E63900;font-size:14px;font-weight:700;margin-bottom:4px;text-align:right;">For SRI VENKATA SURYA ELECTRICAL<br>&amp; MOTOR MECHANICAL WORKS</div>' +
-    (d.signatureUrl 
-      ? '<img src="' + esc(d.signatureUrl) + '" style="max-height:45px;max-width:140px;object-fit:contain;margin:4px 0;" />'
+    (safeSig 
+      ? '<img src="' + safeSig + '" alt="Signature" style="max-height:45px;max-width:140px;object-fit:contain;margin:4px 0;" />'
       : '<div style="height:30px;"></div>'
     ) +
     '<div style="color:#000;font-size:12px;font-weight:700;">Authorised Signatory</div>' +
@@ -201,23 +251,25 @@ export function invHTML_simple(d: any) {
     '</div></body></html>';
 }
 
-export function invHTML(d: any) {
+export function invHTML(d: InvoiceData): string {
   if (d.type === 'quotation' || d.type === 'cash') {
     return invHTML_simple(d);
   }
-  var typeLabel = d.type === 'gst' ? 'TAX INVOICE' : d.type === 'quotation' ? 'QUOTATION' : 'CASH MEMO / BILL';
-  var typeColor = d.type === 'gst' ? '#003399' : d.type === 'quotation' ? '#CC6600' : '#006600';
-  var totHtml = '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#003399;font-weight:700">TOTAL</span><span>' + fmtR(d.sub) + '</span></div>';
-  if (d.discount > 0) {
-    totHtml += '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#666;font-weight:700">DISCOUNT (' + d.discount + '%)</span><span>- ' + fmtR(d.discountAmt) + '</span></div>';
+  const typeLabel = d.type === 'gst' ? 'TAX INVOICE' : d.type === 'quotation' ? 'QUOTATION' : 'CASH MEMO / BILL';
+  const typeColor = d.type === 'gst' ? '#003399' : d.type === 'quotation' ? '#CC6600' : '#006600';
+  let totHtml = '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#003399;font-weight:700">TOTAL</span><span>' + fmtR(d.sub || 0) + '</span></div>';
+  if ((d.discount || 0) > 0) {
+    totHtml += '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#666;font-weight:700">DISCOUNT (' + esc(d.discount) + '%)</span><span>- ' + fmtR(d.discountAmt || 0) + '</span></div>';
   }
   if (d.applyGst) {
-    totHtml += '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#CC0000;font-weight:700">CGST @ 9 %</span><span>' + fmtR(d.cgst) + '</span></div>';
-    totHtml += '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#CC0000;font-weight:700">SGST @ 9 %</span><span>' + fmtR(d.sgst) + '</span></div>';
+    totHtml += '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#CC0000;font-weight:700">CGST @ 9 %</span><span>' + fmtR(d.cgst || 0) + '</span></div>';
+    totHtml += '<div style="display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#CC0000;font-weight:700">SGST @ 9 %</span><span>' + fmtR(d.sgst || 0) + '</span></div>';
   }
-  totHtml += '<div style="display:flex;justify-content:space-between;padding:8px 10px;font-size:13px;font-weight:700;color:#003399;background:#f0f4ff"><span>GRAND TOTAL</span><span>' + fmtR(d.grand) + '</span></div>';
+  totHtml += '<div style="display:flex;justify-content:space-between;padding:8px 10px;font-size:13px;font-weight:700;color:#003399;background:#f0f4ff"><span>GRAND TOTAL</span><span>' + fmtR(d.grand || 0) + '</span></div>';
 
-  var stampHtml = '';
+  const safeSig = safeImageSrc(d.signatureUrl);
+
+  let stampHtml = '';
   if (d.type === 'gst') {
     stampHtml = '<div style="display:flex;gap:30px;align-items:flex-end;">' +
       '<div style="text-align:center;padding-top:4px;border-top:1px solid #003399;min-width:120px;">Receiver\'s Signature</div>' +
@@ -225,8 +277,8 @@ export function invHTML(d: any) {
       '<div style="font-weight:700;font-size:13px;">For SRI VENKATA SURYA</div>' +
       '<div style="font-weight:700;">Electrical &amp; Motor Mechanical Works</div>' +
       '<div style="height:40px;display:flex;align-items:center;justify-content:center;margin:4px 0;">' +
-        (d.signatureUrl 
-          ? '<img src="' + esc(d.signatureUrl) + '" style="max-height:40px;max-width:120px;object-fit:contain;" />' 
+        (safeSig 
+          ? '<img src="' + safeSig + '" alt="Signature" style="max-height:40px;max-width:120px;object-fit:contain;" />' 
           : '<div style="height:40px;"></div>'
         ) +
       '</div>' +
@@ -242,14 +294,16 @@ export function invHTML(d: any) {
       '</div>';
   }
 
-  var itemRows = (d.rows || []).map(function (it: any, i: number) {
-    var q = parseFloat(it.q) || 0, r = parseFloat(it.r) || 0, a = parseFloat(it.a) || 0;
-    var rowAmt = (q > 0 && r > 0) ? q * r : a;
+  const itemRows = (d.rows || []).map(function (it: InvoiceRow, i: number) {
+    const q = typeof it.q === "number" ? it.q : parseFloat(it.q || "") || 0;
+    const r = typeof it.r === "number" ? it.r : parseFloat(it.r || "") || 0;
+    const a = typeof it.a === "number" ? it.a : parseFloat(String(it.a || "")) || 0;
+    const rowAmt = (q > 0 && r > 0) ? q * r : a;
     if (!it.p && !it.h && !it.q && !it.r && rowAmt === 0) return '';
     return '<tr style="vertical-align:top"><td style="text-align:center;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + (i + 1) + '</td>' +
       '<td style="padding:8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + esc(it.p || '') + '</td>' +
       '<td style="text-align:center;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + esc(it.h || '') + '</td>' +
-      '<td style="text-align:center;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + (it.q || '') + '</td>' +
+      '<td style="text-align:center;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + esc(it.q || '') + '</td>' +
       '<td style="text-align:right;padding:8px;border-right:1px solid #003399;border-bottom:1px solid #eee">' + (r ? fmtR(r) : '') + '</td>' +
       '<td style="text-align:right;padding:8px;border-bottom:1px solid #eee">' + fmtR(rowAmt) + '</td></tr>';
   }).join('');
@@ -264,7 +318,7 @@ export function invHTML(d: any) {
     '<div style="padding:8px 12px 6px;font-size:10px;flex-shrink:0">' +
     '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
     '<div><strong>GSTIN : 36BXYPS4294L1Z7</strong><br>Vender Code : 407135</div>' +
-    '<div style="font-weight:700;color:' + typeColor + ';font-size:16px">' + typeLabel + '</div>' +
+    '<div style="font-weight:700;color:' + typeColor + ';font-size:16px">' + esc(typeLabel) + '</div>' +
     '<div style="text-align:right">Cell : 9848693461<br>: 8074312463</div>' +
     '</div>' +
     '</div>' +
@@ -276,8 +330,8 @@ export function invHTML(d: any) {
     '<div style="border-top:1px solid #003399;flex-shrink:0"></div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #003399;flex-shrink:0">' +
     '<div style="padding:10px 12px">' +
-    '<div style="display:flex;gap:4px;font-size:13px;margin-bottom:6px"><span style="min-width:85px">Invoice No. :</span><span style="font-weight:700;color:#CC0000">' + esc(d.no) + '</span></div>' +
-    '<div style="display:flex;gap:4px;font-size:13px"><span style="min-width:85px">Invoice Date :</span><span style="font-weight:700;color:#003399">' + esc(d.date) + '</span></div>' +
+    '<div style="display:flex;gap:4px;font-size:13px;margin-bottom:6px"><span style="min-width:85px">Invoice No. :</span><span style="font-weight:700;color:#CC0000">' + esc(d.no || '') + '</span></div>' +
+    '<div style="display:flex;gap:4px;font-size:13px"><span style="min-width:85px">Invoice Date :</span><span style="font-weight:700;color:#003399">' + esc(d.date || '') + '</span></div>' +
     '</div>' +
     '<div style="padding:10px 12px;border-left:1px solid #003399">' +
     '<div style="display:flex;gap:4px;font-size:13px;margin-bottom:6px"><span style="min-width:95px">Transport Mode :</span><span>' + esc(d.transport || '') + '</span></div>' +
@@ -329,7 +383,7 @@ export function invHTML(d: any) {
     '<div style="color:#CC0000;font-weight:700;font-size:13px">AXIS BANK, BN Reddy Branch</div>' +
     '<div style="color:#CC0000;font-weight:700;margin-top:2px">A/c. No. : 917020076235758, IFSC Code : UTIB0003061</div>' +
     '</div>' +
-    '<div style="border-top:1px solid #003399;border-bottom:1px solid #003399;margin:8px 0;padding:6px 12px;font-weight:700;">Rupees : <span style="font-weight:400;color:#000;">' + esc(numberToWords(d.grand)) + '</span></div>' +
+    '<div style="border-top:1px solid #003399;border-bottom:1px solid #003399;margin:8px 0;padding:6px 12px;font-weight:700;">Rupees : <span style="font-weight:400;color:#000;">' + esc(numberToWords(d.grand || 0)) + '</span></div>' +
     '<div style="font-size:9.5px;color:#333;line-height:1.6;padding:0 12px 10px;">' +
     '<strong style="font-size:10.5px;color:#000;">Terms &amp; Conditions</strong><br>' +
     '1. Goods once cleared from our godown cannot be returned, exchanged, or re-entered into the godown.<br>' +
