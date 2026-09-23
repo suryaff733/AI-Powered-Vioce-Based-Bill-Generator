@@ -41,7 +41,11 @@ function sortBills(list: any[]): any[] {
 
 export function sanitizeBill(b: any): any {
   if (!b || typeof b !== "object") return null;
-  const no = b.no ? String(b.no).trim() : "001";
+  const rawNo = b.no !== undefined && b.no !== null ? String(b.no).trim() : "";
+  const numOnly = parseInt(rawNo.replace(/\D/g, ""), 10);
+  const no = !isNaN(numOnly) && numOnly > 0 
+    ? String(numOnly).padStart(3, '0') 
+    : (rawNo || "001");
   const type = b.type ? String(b.type).toLowerCase().trim() : "gst";
   const key = `${type}_${no}`;
 

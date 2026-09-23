@@ -2478,16 +2478,18 @@ export default function App() {
     }
   }, [fsmState, fsmContext, chatMessages]);
 
-  const calculateNextBillNo = (billsList: any[], type: BillType) => {
-    const nums = billsList
-      .filter((b: any) => (b.type || 'gst') === type)
+  const formatBillNo = (val: string | number): string => {
+    const raw = String(val !== undefined && val !== null ? val : "").trim();
+    const num = parseInt(raw.replace(/\D/g, ""), 10);
+    return !isNaN(num) && num > 0 ? String(num).padStart(3, "0") : (raw || "001");
+  };
+
+  const calculateNextBillNo = (billsList: any[], _type?: BillType): string => {
+    const allNums = (billsList || [])
       .map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10))
-      .filter((n: number) => !isNaN(n));
-    const allNums = billsList
-      .map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10))
-      .filter((n: number) => !isNaN(n));
-    const maxNo = nums.length ? Math.max(...nums) : (allNums.length ? Math.max(...allNums) : 0);
-    return String(maxNo + 1).padStart(3, '0');
+      .filter((n: number) => !isNaN(n) && n > 0);
+    const maxNo = allNums.length > 0 ? Math.max(...allNums) : 0;
+    return String(maxNo + 1).padStart(3, "0");
   };
 
   const handleTypeChange = (newType: BillType) => {
@@ -2501,13 +2503,6 @@ export default function App() {
       setNo(calculateNextBillNo(bills, newType));
     }
   };
-
-  const isDuplicateBillNo = useMemo(() => {
-    if (!no || !no.trim()) return false;
-    const currentKey = `${btype}_${no.trim()}`;
-    if (editingBillId && editingBillId === currentKey) return false;
-    return bills.some((b: any) => `${(b.type || 'gst').toLowerCase()}_${String(b.no).trim()}` === currentKey);
-  }, [no, btype, editingBillId, bills]);
 
   useEffect(() => {
     const initData = async () => {
@@ -2588,24 +2583,80 @@ export default function App() {
 
   const fmtD = (n: number) => 'Rs. ' + (Math.round(n * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const getData = () => ({
-    id: `${btype}_${no}`,
-    type: btype, no, date, po, transport, cname, caddr, cgstin,
-    sname, saddr, sgstin, rows, applyGst: isGst,
-    sub, discount, discountAmt, subAfterDiscount, cgst, sgst, grand, saved: new Date().toISOString()
-  });
+  const getData = () => {
+    const formattedNo = formatBillNo(no);
+    return {
+      id: `${btype}_${formattedNo}`,
+      type: btype,
+      no: formattedNo,
+      date,
+      po,
+      transport,
+      cname,
+      caddr,
+      cgstin,
+      sname,
+      saddr,
+      sgstin,
+      rows,
+      applyGst: isGst,
+      sub,
+      discount,
+      discountAmt,
+      subAfterDiscount,
+      cgst,
+      sgst,
+      grand,
+      saved: new Date().toISOString()
+    };
+  };
 
   const saveBill = async () => {
-    const d = getData();
-    const cleanRows = (d.rows || []).filter((r: any) => !!(r.p || r.h || (parseFloat(r.q) > 0) || (parseFloat(r.r) > 0) || r.a > 0));
-    if (cleanRows.length === 0 && d.grand === 0) {
+    const cleanRows = (rows || []).filter((r: any) => !!(r.p || r.h || (parseFloat(r.q) > 0) || (parseFloat(r.r) > 0) || r.a > 0));
+    if (cleanRows.length === 0 && grand === 0) {
       alert("Please add at least one line item before saving the bill.");
       return;
     }
 
-    const key = `${d.type}_${d.no}`;
+    let finalNo = formatBillNo(no);
+    const targetKey = `${btype}_${finalNo}`;
+
+    // If saving a new bill (not editing an existing one) and bill number collides, auto-assign next unique number
+    if (!editingBillId || editingBillId !== targetKey) {
+      const isDuplicate = bills.some(b => `${(b.type || 'gst').toLowerCase()}_${formatBillNo(b.no)}` === targetKey);
+      if (isDuplicate) {
+        finalNo = calculateNextBillNo(bills);
+        setNo(finalNo);
+      }
+    }
+
+    const d = {
+      id: `${btype}_${finalNo}`,
+      type: btype,
+      no: finalNo,
+      date: date || new Date().toISOString().split('T')[0],
+      po,
+      transport,
+      cname,
+      caddr,
+      cgstin,
+      sname,
+      saddr,
+      sgstin,
+      rows: cleanRows,
+      applyGst: isGst,
+      sub,
+      discount,
+      discountAmt,
+      subAfterDiscount,
+      cgst,
+      sgst,
+      grand,
+      saved: new Date().toISOString()
+    };
+
     const newBills = [...bills];
-    const idx = newBills.findIndex(b => `${(b.type || 'gst').toLowerCase()}_${String(b.no).trim()}` === key);
+    const idx = newBills.findIndex(b => (b.id && b.id === d.id) || `${(b.type || 'gst').toLowerCase()}_${formatBillNo(b.no)}` === `${d.type}_${d.no}`);
     if (idx >= 0) newBills[idx] = d;
     else newBills.unshift(d);
     
@@ -2635,7 +2686,7 @@ export default function App() {
   const loadBill = (d: any) => {
     if (!d) return;
     setBtype(d.type || 'gst');
-    setNo(d.no || '');
+    setNo(formatBillNo(d.no || ''));
     setDate(d.date || '');
     setPo(d.po || '');
     setTransport(d.transport || '');
@@ -2652,33 +2703,7 @@ export default function App() {
       { p: "", h: "", q: "", r: "", a: 0 },
       { p: "", h: "", q: "", r: "", a: 0 }
     ]);
-    setEditingBillId(`${(d.type || 'gst').toLowerCase()}_${String(d.no || '').trim()}`);
-    setActiveSec('create');
-  };
-
-  const cloneBill = (target: any) => {
-    if (!target) return;
-    const targetType = target.type || 'gst';
-    setBtype(targetType);
-    const next = calculateNextBillNo(bills, targetType);
-    setNo(next);
-    setDate(new Date().toISOString().split('T')[0]);
-    setPo(target.po || '');
-    setTransport(target.transport || '');
-    setCname(target.cname || '');
-    setCaddr(target.caddr || '');
-    setCgstin(target.cgstin || '');
-    setSname(target.sname || '');
-    setSaddr(target.saddr || '');
-    setSgstin(target.sgstin || '');
-    setApplyGst(target.applyGst !== undefined ? Boolean(target.applyGst) : targetType === 'gst');
-    setDiscount(target.discount !== undefined ? Number(target.discount) : 0);
-    setRows(Array.isArray(target.rows) && target.rows.length > 0 ? target.rows.map((r: any) => ({ ...r })) : [
-      { p: "", h: "", q: "", r: "", a: 0 },
-      { p: "", h: "", q: "", r: "", a: 0 },
-      { p: "", h: "", q: "", r: "", a: 0 }
-    ]);
-    setEditingBillId(null);
+    setEditingBillId(`${(d.type || 'gst').toLowerCase()}_${formatBillNo(d.no || '')}`);
     setActiveSec('create');
   };
 
@@ -2686,8 +2711,8 @@ export default function App() {
     if (!target || !target.no) return;
     if (!confirm(`Delete bill #${target.no} (${(target.type || 'gst').toUpperCase()})?`)) return;
     
-    const key = `${(target.type || 'gst').toLowerCase()}_${String(target.no).trim()}`;
-    const newBills = bills.filter(b => `${(b.type || 'gst').toLowerCase()}_${String(b.no).trim()}` !== key);
+    const key = `${(target.type || 'gst').toLowerCase()}_${formatBillNo(target.no)}`;
+    const newBills = bills.filter(b => `${(b.type || 'gst').toLowerCase()}_${formatBillNo(b.no)}` !== key);
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
 
@@ -2702,24 +2727,6 @@ export default function App() {
       }
     } catch (e) {
       console.error('Error deleting from server:', e);
-    }
-  };
-
-  const handleDeduplicate = async () => {
-    try {
-      const res = await fetch('/api/bills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'deduplicate' }),
-      });
-      const json = await res.json();
-      if (json && json.success && Array.isArray(json.bills)) {
-        setBills(json.bills);
-        try { localStorage.setItem('svs4', JSON.stringify(json.bills)); } catch (e) {}
-        alert(`Deduplication complete! Total clean bills: ${json.bills.length}`);
-      }
-    } catch (err) {
-      alert("Error running deduplication.");
     }
   };
 
