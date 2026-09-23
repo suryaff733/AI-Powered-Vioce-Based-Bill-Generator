@@ -90,7 +90,7 @@ export function numberToWords(num: number = 0): string {
 
 export function invHTML_simple(d: InvoiceData): string {
   const typeLabel = d.type === 'quotation' ? 'QUOTATION' : 'CASH MEMO / BILL';
-  const typeColor = d.type === 'quotation' ? '#CC6600' : '#006600';
+  const typeColor = '#003399';
   const dateStr = (d.date || '').split('-').reverse().join('/');
 
   const validRows = (d.rows || []).filter(function (it: InvoiceRow) {
@@ -249,7 +249,7 @@ export function invHTML(d: InvoiceData): string {
     return invHTML_simple(d);
   }
   const typeLabel = d.type === 'gst' ? 'TAX INVOICE' : d.type === 'quotation' ? 'QUOTATION' : 'CASH MEMO / BILL';
-  const typeColor = d.type === 'gst' ? '#003399' : d.type === 'quotation' ? '#CC6600' : '#006600';
+  const typeColor = '#003399';
   
   let totHtml = '<div style="display:flex;justify-content:space-between;padding:5px 10px;border-bottom:1px solid #eee;font-size:13px"><span style="color:#003399;font-weight:700">SUBTOTAL</span><span>' + fmtR(d.sub || 0) + '</span></div>';
   if ((d.discount || 0) > 0) {
