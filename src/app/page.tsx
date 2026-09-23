@@ -2778,11 +2778,11 @@ export default function App() {
         width: 794,
         height: 1123
       }).then(async (canvas) => {
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const imgData = canvas.toDataURL('image/jpeg', 0.88);
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
         const pdfW = pdf.internal.pageSize.getWidth();
         const pdfH = pdf.internal.pageSize.getHeight();
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH, undefined, 'FAST');
         
         const fname = `SVS_${d.type.toUpperCase()}_${d.no}_${(d.date || '').replace(/-/g, '')}_${(d.cname || 'bill').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
         
