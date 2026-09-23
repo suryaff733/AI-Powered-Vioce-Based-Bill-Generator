@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { invHTML } from "../lib/invoiceHTML";
 import "./globals.css"; // Ensure global CSS has the original styles
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import ConversationalDrawer from "./components/ConversationalDrawer";
-import defaultCatalog from "./catalog.json";
 
 type Row = { p: string; h: string; q: string; r: string; a: number };
 type BillType = 'gst' | 'quotation' | 'cash';
@@ -960,13 +959,7 @@ export default function App() {
   const [applyGst, setApplyGst] = useState(true);
   const [discount, setDiscount] = useState(0);
   const [bills, setBills] = useState<any[]>([]);
-
-  // Dynamic Catalog States
-  const [catalogItems, setCatalogItems] = useState<any[]>(defaultCatalog);
-  const [showCatalogModal, setShowCatalogModal] = useState(false);
-  const [newProdName, setNewProdName] = useState("");
-  const [newProdRate, setNewProdRate] = useState("");
-  const [newProdHsn, setNewProdHsn] = useState("");
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
 
   // History Search & Filter States
   const [searchQuery, setSearchQuery] = useState("");
@@ -1307,31 +1300,7 @@ export default function App() {
   };
 
   const matchProduct = (inputName: string): { matches: string[]; exact: boolean } => {
-    const cleanInput = inputName.toLowerCase().trim();
-    const exactMatch = catalogItems.find(item => item.name.toLowerCase() === cleanInput);
-    if (exactMatch) {
-      return { matches: [exactMatch.name], exact: true };
-    }
-
-    // Check substring matches
-    const substringMatches = catalogItems.filter(item => 
-      item.name.toLowerCase().includes(cleanInput) || cleanInput.includes(item.name.toLowerCase())
-    );
-    if (substringMatches.length > 0) {
-      return { matches: substringMatches.map(m => m.name), exact: substringMatches.length === 1 };
-    }
-
-    // Fuzzy matching using Levenshtein distance
-    const suggestions = catalogItems
-      .map(item => ({
-        name: item.name,
-        distance: getLevenshteinDistance(cleanInput, item.name.toLowerCase())
-      }))
-      .filter(item => item.distance <= 3)
-      .sort((a, b) => a.distance - b.distance)
-      .map(item => item.name);
-
-    return { matches: suggestions, exact: false };
+    return { matches: [inputName.trim()], exact: true };
   };
 
   const handleFsmTransition = async (aiParsed: any, rawText: string) => {
@@ -2509,94 +2478,78 @@ export default function App() {
     }
   }, [fsmState, fsmContext, chatMessages]);
 
-  const handleAddCatalogProduct = () => {
-    if (!newProdName.trim()) {
-      alert('Please enter a product name');
-      return;
-    }
-    const item = {
-      name: newProdName.trim(),
-      defaultRate: Number(newProdRate) || 0,
-      hsn: newProdHsn.trim(),
-    };
-    const updated = [...catalogItems];
-    const idx = updated.findIndex(c => c && c.name && c.name.toLowerCase() === item.name.toLowerCase());
-    if (idx >= 0) {
-      updated[idx] = { ...updated[idx], ...item };
-    } else {
-      updated.push(item);
-    }
-    setCatalogItems(updated);
-    try { localStorage.setItem('svs_catalog', JSON.stringify(updated)); } catch (e) {}
-    setNewProdName('');
-    setNewProdRate('');
-    setNewProdHsn('');
+  const calculateNextBillNo = (billsList: any[], type: BillType) => {
+    const nums = billsList
+      .filter((b: any) => (b.type || 'gst') === type)
+      .map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10))
+      .filter((n: number) => !isNaN(n));
+    const allNums = billsList
+      .map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10))
+      .filter((n: number) => !isNaN(n));
+    const maxNo = nums.length ? Math.max(...nums) : (allNums.length ? Math.max(...allNums) : 0);
+    return String(maxNo + 1).padStart(3, '0');
   };
 
-  const handleDeleteCatalogProduct = (name: string) => {
-    if (!confirm(`Delete "${name}" from catalog?`)) return;
-    const updated = catalogItems.filter(c => c && c.name && c.name.toLowerCase() !== name.toLowerCase());
-    setCatalogItems(updated);
-    try { localStorage.setItem('svs_catalog', JSON.stringify(updated)); } catch (e) {}
-  };
-
-  const exportDataBackup = () => {
-    try {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bills, null, 2));
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `svs_billing_backup_${new Date().toISOString().slice(0, 10)}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-    } catch (e) {
-      alert("Failed to export backup data.");
+  const handleTypeChange = (newType: BillType) => {
+    setBtype(newType);
+    if (newType === 'cash') {
+      setApplyGst(false);
+    } else if (newType === 'gst') {
+      setApplyGst(true);
+    }
+    if (!editingBillId) {
+      setNo(calculateNextBillNo(bills, newType));
     }
   };
 
-  const importDataBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileReader = new FileReader();
-    if (e.target.files && e.target.files[0]) {
-      fileReader.readAsText(e.target.files[0], "UTF-8");
-      fileReader.onload = (event) => {
-        try {
-          const imported = JSON.parse(event.target?.result as string);
-          if (Array.isArray(imported)) {
-            setBills(imported);
-            try { localStorage.setItem('svs4', JSON.stringify(imported)); } catch (e) {}
-            alert(`Successfully imported ${imported.length} bills from backup!`);
-          } else {
-            alert('Invalid backup file format. Expected a JSON array of bills.');
-          }
-        } catch (err) {
-          alert('Error parsing backup JSON file.');
-        }
-      };
-    }
-  };
+  const isDuplicateBillNo = useMemo(() => {
+    if (!no || !no.trim()) return false;
+    const currentKey = `${btype}_${no.trim()}`;
+    if (editingBillId && editingBillId === currentKey) return false;
+    return bills.some((b: any) => `${(b.type || 'gst').toLowerCase()}_${String(b.no).trim()}` === currentKey);
+  }, [no, btype, editingBillId, bills]);
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('svs4') || '[]');
-      setBills(saved);
-      const nums = saved.map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10)).filter((n: number) => !isNaN(n));
-      setNo(String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, '0'));
-      
-      const savedCatalog = localStorage.getItem('svs_catalog');
-      if (savedCatalog) {
-        try {
-          const parsedCat = JSON.parse(savedCatalog);
-          if (Array.isArray(parsedCat) && parsedCat.length > 0) {
-            setCatalogItems(parsedCat);
+    const initData = async () => {
+      let localSaved: any[] = [];
+      try {
+        localSaved = JSON.parse(localStorage.getItem('svs4') || '[]');
+      } catch (e) {}
+
+      try {
+        const res = await fetch('/api/bills');
+        const json = await res.json();
+        if (json && json.success && Array.isArray(json.bills)) {
+          // Merge local and server without duplicates
+          const mergedRes = await fetch('/api/bills', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bills: [...json.bills, ...localSaved] }),
+          });
+          const mergedJson = await mergedRes.json();
+          if (mergedJson && mergedJson.success && Array.isArray(mergedJson.bills)) {
+            setBills(mergedJson.bills);
+            try { localStorage.setItem('svs4', JSON.stringify(mergedJson.bills)); } catch (e) {}
+            const next = calculateNextBillNo(mergedJson.bills, btype);
+            setNo(next);
+            return;
           }
-        } catch (e) {}
+        }
+      } catch (err) {
+        console.warn('Server fetch failed, using local storage:', err);
       }
+
+      setBills(localSaved);
+      const next = calculateNextBillNo(localSaved, btype);
+      setNo(next);
 
       const savedConv = localStorage.getItem('svs_active_conv');
       if (savedConv) {
         setShowResumeBanner(true);
       }
-    } catch (e) {}
+    };
+
+    initData();
     setDate(new Date().toISOString().split('T')[0]);
   }, []);
 
@@ -2607,16 +2560,6 @@ export default function App() {
   const upd = (i: number, field: keyof Row, val: string) => {
     const newRows = [...rows];
     (newRows[i] as any)[field] = val;
-    
-    if (field === 'p' && val) {
-      const match = catalogItems.find(c => c.name.toLowerCase() === val.toLowerCase().trim());
-      if (match) {
-        if (match.hsn && !newRows[i].h) newRows[i].h = match.hsn;
-        if (match.defaultRate && (!newRows[i].r || newRows[i].r === '0' || newRows[i].r === '')) {
-          newRows[i].r = String(match.defaultRate);
-        }
-      }
-    }
 
     const q = parseFloat(newRows[i].q);
     const r = parseFloat(newRows[i].r);
@@ -2637,29 +2580,55 @@ export default function App() {
 
   const sub = rows.reduce((s, x) => s + (parseFloat(x.a as any) || 0), 0);
   const discountAmt = Math.round(sub * (discount / 100) * 100) / 100;
-  const subAfterDiscount = sub - discountAmt;
+  const subAfterDiscount = Math.max(0, Math.round((sub - discountAmt) * 100) / 100);
   const isGst = applyGst && btype !== 'cash';
   const cgst = isGst ? Math.round(subAfterDiscount * 0.09 * 100) / 100 : 0;
   const sgst = isGst ? Math.round(subAfterDiscount * 0.09 * 100) / 100 : 0;
-  const grand = subAfterDiscount + cgst + sgst;
+  const grand = Math.round((subAfterDiscount + cgst + sgst) * 100) / 100;
 
   const fmtD = (n: number) => 'Rs. ' + (Math.round(n * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const getData = () => ({
+    id: `${btype}_${no}`,
     type: btype, no, date, po, transport, cname, caddr, cgstin,
     sname, saddr, sgstin, rows, applyGst: isGst,
     sub, discount, discountAmt, subAfterDiscount, cgst, sgst, grand, saved: new Date().toISOString()
   });
 
-  const saveBill = () => {
+  const saveBill = async () => {
     const d = getData();
+    const cleanRows = (d.rows || []).filter((r: any) => !!(r.p || r.h || (parseFloat(r.q) > 0) || (parseFloat(r.r) > 0) || r.a > 0));
+    if (cleanRows.length === 0 && d.grand === 0) {
+      alert("Please add at least one line item before saving the bill.");
+      return;
+    }
+
+    const key = `${d.type}_${d.no}`;
     const newBills = [...bills];
-    const idx = newBills.findIndex(b => String(b.no).trim() === String(d.no).trim() && String(b.type).toLowerCase().trim() === String(d.type).toLowerCase().trim());
+    const idx = newBills.findIndex(b => `${(b.type || 'gst').toLowerCase()}_${String(b.no).trim()}` === key);
     if (idx >= 0) newBills[idx] = d;
     else newBills.unshift(d);
     
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
+    setEditingBillId(null);
+
+    // Sync with backend API
+    try {
+      const res = await fetch('/api/bills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(d),
+      });
+      const json = await res.json();
+      if (json && json.success && Array.isArray(json.bills)) {
+        setBills(json.bills);
+        try { localStorage.setItem('svs4', JSON.stringify(json.bills)); } catch (e) {}
+      }
+    } catch (e) {
+      console.error('Error saving to server:', e);
+    }
+
     setActiveSec('history');
   };
 
@@ -2683,16 +2652,75 @@ export default function App() {
       { p: "", h: "", q: "", r: "", a: 0 },
       { p: "", h: "", q: "", r: "", a: 0 }
     ]);
+    setEditingBillId(`${(d.type || 'gst').toLowerCase()}_${String(d.no || '').trim()}`);
     setActiveSec('create');
   };
 
-  const delBill = (target: any) => {
+  const cloneBill = (target: any) => {
+    if (!target) return;
+    const targetType = target.type || 'gst';
+    setBtype(targetType);
+    const next = calculateNextBillNo(bills, targetType);
+    setNo(next);
+    setDate(new Date().toISOString().split('T')[0]);
+    setPo(target.po || '');
+    setTransport(target.transport || '');
+    setCname(target.cname || '');
+    setCaddr(target.caddr || '');
+    setCgstin(target.cgstin || '');
+    setSname(target.sname || '');
+    setSaddr(target.saddr || '');
+    setSgstin(target.sgstin || '');
+    setApplyGst(target.applyGst !== undefined ? Boolean(target.applyGst) : targetType === 'gst');
+    setDiscount(target.discount !== undefined ? Number(target.discount) : 0);
+    setRows(Array.isArray(target.rows) && target.rows.length > 0 ? target.rows.map((r: any) => ({ ...r })) : [
+      { p: "", h: "", q: "", r: "", a: 0 },
+      { p: "", h: "", q: "", r: "", a: 0 },
+      { p: "", h: "", q: "", r: "", a: 0 }
+    ]);
+    setEditingBillId(null);
+    setActiveSec('create');
+  };
+
+  const delBill = async (target: any) => {
     if (!target || !target.no) return;
     if (!confirm(`Delete bill #${target.no} (${(target.type || 'gst').toUpperCase()})?`)) return;
     
-    const newBills = bills.filter(b => !(String(b.no).trim() === String(target.no).trim() && String(b.type).toLowerCase().trim() === String(target.type).toLowerCase().trim()));
+    const key = `${(target.type || 'gst').toLowerCase()}_${String(target.no).trim()}`;
+    const newBills = bills.filter(b => `${(b.type || 'gst').toLowerCase()}_${String(b.no).trim()}` !== key);
     setBills(newBills);
     try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
+
+    try {
+      const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json();
+      if (json && json.success && Array.isArray(json.bills)) {
+        setBills(json.bills);
+        try { localStorage.setItem('svs4', JSON.stringify(json.bills)); } catch (e) {}
+      }
+    } catch (e) {
+      console.error('Error deleting from server:', e);
+    }
+  };
+
+  const handleDeduplicate = async () => {
+    try {
+      const res = await fetch('/api/bills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deduplicate' }),
+      });
+      const json = await res.json();
+      if (json && json.success && Array.isArray(json.bills)) {
+        setBills(json.bills);
+        try { localStorage.setItem('svs4', JSON.stringify(json.bills)); } catch (e) {}
+        alert(`Deduplication complete! Total clean bills: ${json.bills.length}`);
+      }
+    } catch (err) {
+      alert("Error running deduplication.");
+    }
   };
 
   const resetForm = () => {
@@ -2701,9 +2729,10 @@ export default function App() {
     setCgstin('36BXYPS4294L1Z7');
     setDiscount(0);
     setRows([{ p: "", h: "", q: "", r: "", a: 0 }, { p: "", h: "", q: "", r: "", a: 0 }, { p: "", h: "", q: "", r: "", a: 0 }]);
-    const nums = bills.map((b: any) => parseInt(b.no)).filter((n: number) => !isNaN(n));
-    setNo(String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, '0'));
+    setEditingBillId(null);
+    setNo(calculateNextBillNo(bills, btype));
   };
+
 
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -2871,9 +2900,9 @@ export default function App() {
             </svg>
             <span style={{ fontWeight: 600 }}>Create Invoice with AI</span>
           </button>
-          <div className={`tab ${btype === 'gst' ? 'on' : ''}`} onClick={() => setBtype('gst')}>GST Invoice</div>
-          <div className={`tab ${btype === 'quotation' ? 'on' : ''}`} onClick={() => setBtype('quotation')}>Quotation</div>
-          <div className={`tab ${btype === 'cash' ? 'on' : ''}`} onClick={() => setBtype('cash')}>Cash Memo</div>
+          <div className={`tab ${btype === 'gst' ? 'on' : ''}`} onClick={() => handleTypeChange('gst')}>GST Invoice</div>
+          <div className={`tab ${btype === 'quotation' ? 'on' : ''}`} onClick={() => handleTypeChange('quotation')}>Quotation</div>
+          <div className={`tab ${btype === 'cash' ? 'on' : ''}`} onClick={() => handleTypeChange('cash')}>Cash Memo</div>
         </div>
       </div>
 
@@ -2928,16 +2957,10 @@ export default function App() {
                       <td data-lbl="Particulars">
                         <input
                           value={r.p}
-                          list="catalog-products"
                           placeholder="Description"
                           onChange={e => upd(i, 'p', e.target.value)}
                           style={{ borderColor: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }}
                         />
-                        <datalist id="catalog-products">
-                          {catalogItems.map((c, idx) => (
-                            <option key={idx} value={c.name}>{c.defaultRate ? `Rs. ${c.defaultRate}` : ''}</option>
-                          ))}
-                        </datalist>
                       </td>
                       <td data-lbl="HSN/SAC"><input value={r.h} placeholder="HSN" onChange={e => upd(i, 'h', e.target.value)} /></td>
                       <td data-lbl="Qty"><input type="text" value={r.q} placeholder="0" onChange={e => upd(i, 'q', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
@@ -2950,15 +2973,43 @@ export default function App() {
               </table>
             </div>
             <button className="btn btn-sm" onClick={() => addRow()}>+ Add Item</button>
-            <div style={{ marginTop: "10px" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", cursor: "pointer" }}>
+            <div style={{ display: "flex", gap: "16px", alignItems: "center", marginTop: "12px", flexWrap: "wrap", padding: "10px 12px", background: "var(--color-background-secondary, #f8fafc)", borderRadius: "6px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", fontWeight: 600 }}>
                 <input type="checkbox" checked={applyGst} onChange={e => setApplyGst(e.target.checked)} style={{ width: "auto" }} /> Apply GST (CGST 9% + SGST 9%)
               </label>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
+                <label style={{ fontWeight: 600, color: "var(--color-text-secondary)" }}>Discount (%):</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={discount || ''}
+                  onChange={e => setDiscount(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
+                  placeholder="0"
+                  style={{ width: "70px", padding: "4px 8px" }}
+                />
+              </div>
             </div>
-            <div className="totals-box" style={{ marginTop: "10px" }}>
+            <div className="totals-box" style={{ marginTop: "12px" }}>
               <div className="tline"><span className="lbl">Subtotal</span><span>{fmtD(sub)}</span></div>
-              <div className="tline"><span className="lbl">CGST @ 9%</span><span>{fmtD(cgst)}</span></div>
-              <div className="tline"><span className="lbl">SGST @ 9%</span><span>{fmtD(sgst)}</span></div>
+              {discount > 0 && (
+                <div className="tline" style={{ color: "#b91c1c" }}>
+                  <span className="lbl">Discount ({discount}%)</span>
+                  <span>- {fmtD(discountAmt)}</span>
+                </div>
+              )}
+              {discount > 0 && isGst && (
+                <div className="tline" style={{ color: "var(--color-text-secondary)" }}>
+                  <span className="lbl">Taxable Amount</span>
+                  <span>{fmtD(subAfterDiscount)}</span>
+                </div>
+              )}
+              {isGst && (
+                <>
+                  <div className="tline"><span className="lbl">CGST @ 9%</span><span>{fmtD(cgst)}</span></div>
+                  <div className="tline"><span className="lbl">SGST @ 9%</span><span>{fmtD(sgst)}</span></div>
+                </>
+              )}
               <div className="tline grand"><span className="lbl">Grand Total</span><span>{fmtD(grand)}</span></div>
             </div>
           </div>
@@ -3036,35 +3087,6 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-
-                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                  <button
-                    className="btn btn-sm"
-                    onClick={() => setShowCatalogModal(true)}
-                    style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#0f766e", color: "#fff", borderColor: "#0f766e" }}
-                  >
-                    📦 Catalog ({catalogItems.length})
-                  </button>
-                  <button
-                    className="btn btn-sm"
-                    onClick={exportDataBackup}
-                    style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#0284c7", color: "#fff", borderColor: "#0284c7" }}
-                  >
-                    📥 Export
-                  </button>
-                  <label
-                    className="btn btn-sm"
-                    style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#4f46e5", color: "#fff", borderColor: "#4f46e5", cursor: "pointer", margin: 0 }}
-                  >
-                    📤 Import
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={importDataBackup}
-                      style={{ display: "none" }}
-                    />
-                  </label>
-                </div>
               </div>
 
               {/* Row 2: Date Filters & Match Summary */}
@@ -3136,123 +3158,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Central Product Catalog Manager Modal */}
-      {showCatalogModal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(15, 23, 42, 0.6)",
-            backdropFilter: "blur(4px)",
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "16px",
-          }}
-          onClick={() => setShowCatalogModal(false)}
-        >
-          <div
-            className="card"
-            style={{
-              maxWidth: "550px",
-              width: "100%",
-              maxHeight: "85vh",
-              overflowY: "auto",
-              backgroundColor: "#fff",
-              borderRadius: "12px",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
-              margin: 0,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e2e8f0", paddingBottom: "12px", marginBottom: "14px" }}>
-              <div style={{ fontWeight: 700, fontSize: "16px", color: "#0f766e" }}>
-                📦 Centralized Product Catalog ({catalogItems.length} items)
-              </div>
-              <button className="btn btn-sm btn-red" onClick={() => setShowCatalogModal(false)}>✕ Close</button>
-            </div>
 
-            {/* Add New Product Form */}
-            <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px", borderRadius: "8px", marginBottom: "16px" }}>
-              <div style={{ fontWeight: 600, fontSize: "13px", color: "#166534", marginBottom: "8px" }}>+ Add / Update Product Preset</div>
-              <div className="g2" style={{ marginBottom: "8px" }}>
-                <div className="field">
-                  <label>Product Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Submersible Motor 1HP"
-                    value={newProdName}
-                    onChange={(e) => setNewProdName(e.target.value)}
-                  />
-                </div>
-                <div className="field">
-                  <label>Default Rate (Rs.)</label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 5000"
-                    value={newProdRate}
-                    onChange={(e) => setNewProdRate(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>HSN / SAC Code (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 8413"
-                    value={newProdHsn}
-                    onChange={(e) => setNewProdHsn(e.target.value)}
-                  />
-                </div>
-                <button
-                  className="btn btn-green"
-                  style={{ alignSelf: "flex-end", height: "36px", padding: "0 16px" }}
-                  onClick={handleAddCatalogProduct}
-                >
-                  Save to Catalog
-                </button>
-              </div>
-            </div>
-
-            {/* Catalog Items List */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {catalogItems.map((c, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "8px 12px",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "6px",
-                    backgroundColor: "#f8fafc",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "13px" }}>{c.name}</div>
-                    <div style={{ fontSize: "11px", color: "#64748b" }}>
-                      Default Rate: <strong>Rs. {c.defaultRate}</strong> {c.hsn ? `· HSN: ${c.hsn}` : ''}
-                    </div>
-                  </div>
-                  <button
-                    className="btn btn-sm btn-red"
-                    onClick={() => handleDeleteCatalogProduct(c.name)}
-                    style={{ padding: "2px 8px", fontSize: "11px" }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
       <ConversationalDrawer
         isOpen={showAiDrawer}
         onClose={handleCloseDrawer}

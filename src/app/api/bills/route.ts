@@ -35,23 +35,43 @@ function sortBills(list: any[]): any[] {
     const numA = parseInt(String(a.no).replace(/\D/g, ""), 10) || 0;
     const numB = parseInt(String(b.no).replace(/\D/g, ""), 10) || 0;
     if (numA !== numB) return numB - numA;
-    return (b.saved || "").localeCompare(a.saved || "");
+    return (b.saved || b.updatedAt || "").localeCompare(a.saved || a.updatedAt || "");
   });
 }
 
-function sanitizeBill(b: any): any {
+export function sanitizeBill(b: any): any {
   if (!b || typeof b !== "object") return null;
   const no = b.no ? String(b.no).trim() : "001";
   const type = b.type ? String(b.type).toLowerCase().trim() : "gst";
   const key = `${type}_${no}`;
 
-  const sub = typeof b.sub === "number" && !isNaN(b.sub) ? b.sub : Number(b.sub) || 0;
-  const discount = typeof b.discount === "number" && !isNaN(b.discount) ? b.discount : Number(b.discount) || 0;
-  const discountAmt = typeof b.discountAmt === "number" && !isNaN(b.discountAmt) ? b.discountAmt : Number(b.discountAmt) || 0;
-  const subAfterDiscount = typeof b.subAfterDiscount === "number" && !isNaN(b.subAfterDiscount) ? b.subAfterDiscount : Number(b.subAfterDiscount) || sub;
-  const cgst = typeof b.cgst === "number" && !isNaN(b.cgst) ? b.cgst : Number(b.cgst) || 0;
-  const sgst = typeof b.sgst === "number" && !isNaN(b.sgst) ? b.sgst : Number(b.sgst) || 0;
-  const grand = typeof b.grand === "number" && !isNaN(b.grand) ? b.grand : Number(b.grand) || 0;
+  const cleanRows = Array.isArray(b.rows)
+    ? b.rows
+        .map((r: any) => {
+          const p = r && r.p ? String(r.p).trim() : "";
+          const h = r && r.h ? String(r.h).trim() : "";
+          const q = r && r.q !== undefined ? String(r.q).trim() : "";
+          const rVal = r && r.r !== undefined ? String(r.r).trim() : "";
+          const qNum = parseFloat(q) || 0;
+          const rNum = parseFloat(rVal) || 0;
+          let a = typeof r?.a === "number" && !isNaN(r.a) ? r.a : Number(r?.a) || 0;
+          if (qNum > 0 && rNum > 0) {
+            a = Math.round(qNum * rNum * 100) / 100;
+          }
+          return { p, h, q, r: rVal, a };
+        })
+        .filter((r: any) => !!(r.p || r.h || (parseFloat(r.q) > 0) || (parseFloat(r.r) > 0) || r.a > 0))
+    : [];
+
+  const sub = cleanRows.reduce((acc: number, r: any) => acc + (Number(r.a) || 0), 0);
+  const discount = typeof b.discount === "number" && !isNaN(b.discount) ? Math.max(0, b.discount) : Math.max(0, Number(b.discount) || 0);
+  const discountAmt = Math.round(sub * (discount / 100) * 100) / 100;
+  const subAfterDiscount = Math.max(0, Math.round((sub - discountAmt) * 100) / 100);
+  const applyGst = b.applyGst !== undefined ? Boolean(b.applyGst) : type === "gst";
+  const isGst = applyGst && type !== "cash";
+  const cgst = isGst ? Math.round(subAfterDiscount * 0.09 * 100) / 100 : 0;
+  const sgst = isGst ? Math.round(subAfterDiscount * 0.09 * 100) / 100 : 0;
+  const grand = Math.round((subAfterDiscount + cgst + sgst) * 100) / 100;
 
   return {
     id: b.id ? String(b.id).trim() : key,
@@ -66,16 +86,12 @@ function sanitizeBill(b: any): any {
     sname: b.sname ? String(b.sname).trim() : "",
     saddr: b.saddr ? String(b.saddr).trim() : "",
     sgstin: b.sgstin ? String(b.sgstin).trim() : "",
-    rows: Array.isArray(b.rows)
-      ? b.rows.map((r: any) => ({
-          p: r && r.p ? String(r.p).trim() : "",
-          h: r && r.h ? String(r.h).trim() : "",
-          q: r && r.q !== undefined ? String(r.q).trim() : "0",
-          r: r && r.r !== undefined ? String(r.r).trim() : "0",
-          a: typeof r?.a === "number" && !isNaN(r.a) ? r.a : Number(r?.a) || 0,
-        }))
-      : [],
-    applyGst: b.applyGst !== undefined ? Boolean(b.applyGst) : type === "gst",
+    rows: cleanRows.length > 0 ? cleanRows : [
+      { p: "", h: "", q: "", r: "", a: 0 },
+      { p: "", h: "", q: "", r: "", a: 0 },
+      { p: "", h: "", q: "", r: "", a: 0 }
+    ],
+    applyGst: isGst,
     sub,
     discount,
     discountAmt,
@@ -83,9 +99,46 @@ function sanitizeBill(b: any): any {
     cgst,
     sgst,
     grand,
+    signatureUrl: b.signatureUrl ? String(b.signatureUrl).trim() : "",
     saved: b.saved ? String(b.saved).trim() : new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
+}
+
+export function deduplicateBills(list: any[]): any[] {
+  const keyMap = new Map<string, any>();
+  const contentMap = new Map<string, any>();
+
+  for (const item of list) {
+    const clean = sanitizeBill(item);
+    if (!clean) continue;
+
+    // Generate content fingerprint based on customer, date, grand total, and items
+    const rowsFingerprint = (clean.rows || [])
+      .filter((r: any) => r.p || r.a)
+      .map((r: any) => `${r.p}|${r.q}|${r.r}|${r.a}`)
+      .join(";");
+    const contentKey = `${clean.type}|${clean.cname.toLowerCase().trim()}|${clean.date}|${clean.po.toLowerCase().trim()}|${clean.grand}|${rowsFingerprint}`;
+
+    const billKey = getBillKey(clean);
+
+    // If identical content exists, keep the one with the higher bill number or newer update
+    if (contentMap.has(contentKey)) {
+      const existing = contentMap.get(contentKey);
+      const numExisting = parseInt(String(existing.no).replace(/\D/g, ""), 10) || 0;
+      const numClean = parseInt(String(clean.no).replace(/\D/g, ""), 10) || 0;
+      if (numClean > numExisting) {
+        keyMap.delete(getBillKey(existing));
+        keyMap.set(billKey, clean);
+        contentMap.set(contentKey, clean);
+      }
+    } else {
+      keyMap.set(billKey, clean);
+      contentMap.set(contentKey, clean);
+    }
+  }
+
+  return sortBills(Array.from(keyMap.values()));
 }
 
 function readBills(): any[] {
@@ -95,7 +148,7 @@ function readBills(): any[] {
     if (!content || !content.trim()) return [];
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed)) return [];
-    return sortBills(parsed.map(sanitizeBill).filter(Boolean));
+    return deduplicateBills(parsed);
   } catch (err) {
     console.error("Corrupted bills.json detected, attempting backup recovery:", err);
     try {
@@ -103,9 +156,9 @@ function readBills(): any[] {
         const bakContent = fs.readFileSync(BILLS_BAK_FILE, "utf-8");
         const recovered = JSON.parse(bakContent || "[]");
         if (Array.isArray(recovered)) {
-          const sorted = sortBills(recovered.map(sanitizeBill).filter(Boolean));
-          writeBillsAtomic(sorted);
-          return sorted;
+          const deduped = deduplicateBills(recovered);
+          writeBillsAtomic(deduped);
+          return deduped;
         }
       }
     } catch (bakErr) {
@@ -118,7 +171,7 @@ function readBills(): any[] {
 function writeBillsAtomic(bills: any[]): boolean {
   ensureFileExists();
   try {
-    const sorted = sortBills(bills.map(sanitizeBill).filter(Boolean));
+    const deduped = deduplicateBills(bills);
     // 1. Create a backup of current valid bills file
     if (fs.existsSync(BILLS_FILE)) {
       try {
@@ -126,15 +179,15 @@ function writeBillsAtomic(bills: any[]): boolean {
       } catch (e) {}
     }
     // 2. Write to temporary file first (prevents partial write crashes)
-    fs.writeFileSync(BILLS_TMP_FILE, JSON.stringify(sorted, null, 2), "utf-8");
+    fs.writeFileSync(BILLS_TMP_FILE, JSON.stringify(deduped, null, 2), "utf-8");
     // 3. Atomically rename temporary file to actual file
     fs.renameSync(BILLS_TMP_FILE, BILLS_FILE);
     return true;
   } catch (err) {
     console.error("Error atomically writing bills.json:", err);
     try {
-      const sorted = sortBills(bills.map(sanitizeBill).filter(Boolean));
-      fs.writeFileSync(BILLS_FILE, JSON.stringify(sorted, null, 2), "utf-8");
+      const deduped = deduplicateBills(bills);
+      fs.writeFileSync(BILLS_FILE, JSON.stringify(deduped, null, 2), "utf-8");
       return true;
     } catch (e) {
       return false;
@@ -143,27 +196,8 @@ function writeBillsAtomic(bills: any[]): boolean {
 }
 
 function mergeBillsList(existingList: any[], incomingList: any[]): any[] {
-  const map = new Map<string, any>();
-  
-  for (const b of existingList) {
-    const clean = sanitizeBill(b);
-    if (clean) {
-      const key = getBillKey(clean);
-      if (key) map.set(key, clean);
-    }
-  }
-  
-  for (const b of incomingList) {
-    const clean = sanitizeBill(b);
-    if (clean) {
-      const key = getBillKey(clean);
-      if (key) {
-        map.set(key, { ...map.get(key), ...clean, updatedAt: new Date().toISOString() });
-      }
-    }
-  }
-
-  return sortBills(Array.from(map.values()));
+  const all = [...existingList, ...incomingList];
+  return deduplicateBills(all);
 }
 
 export async function GET() {
@@ -180,6 +214,13 @@ export async function POST(req: Request) {
     const body = await req.json();
     const currentBills = readBills();
 
+    // Check if deduplication action is explicitly requested
+    if (body && body.action === "deduplicate") {
+      const deduped = deduplicateBills(currentBills);
+      writeBillsAtomic(deduped);
+      return NextResponse.json({ success: true, bills: deduped, message: "Deduplication successful" }, { status: 200 });
+    }
+
     if (body && !Array.isArray(body) && (body.no !== undefined || body.id !== undefined)) {
       const cleanBill = sanitizeBill({ ...body, updatedAt: new Date().toISOString() });
       if (!cleanBill) {
@@ -194,9 +235,9 @@ export async function POST(req: Request) {
         currentBills.unshift(cleanBill);
       }
       
-      const sorted = sortBills(currentBills);
-      writeBillsAtomic(sorted);
-      return NextResponse.json({ success: true, bills: sorted }, { status: 200 });
+      const deduped = deduplicateBills(currentBills);
+      writeBillsAtomic(deduped);
+      return NextResponse.json({ success: true, bills: deduped }, { status: 200 });
     }
 
     const incomingBills = Array.isArray(body) ? body : body.bills;
@@ -246,10 +287,11 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Missing bill identifier (no or id)" }, { status: 400 });
     }
 
-    const sorted = sortBills(currentBills);
-    writeBillsAtomic(sorted);
-    return NextResponse.json({ success: true, bills: sorted }, { status: 200 });
+    const deduped = deduplicateBills(currentBills);
+    writeBillsAtomic(deduped);
+    return NextResponse.json({ success: true, bills: deduped }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+

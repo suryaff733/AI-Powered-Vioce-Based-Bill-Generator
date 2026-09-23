@@ -1,5 +1,6 @@
 [
   {
+    "id": "quotation_200",
     "type": "quotation",
     "no": "200",
     "date": "2026-06-08",
@@ -25,13 +26,6 @@
         "q": "1",
         "r": "1100",
         "a": 1100
-      },
-      {
-        "p": "",
-        "h": "",
-        "q": "0",
-        "r": "0",
-        "a": 0
       }
     ],
     "applyGst": false,
@@ -42,11 +36,12 @@
     "cgst": 0,
     "sgst": 0,
     "grand": 1700,
-    "saved": "2026-06-08T08:57:46.932Z",
     "signatureUrl": "",
-    "updatedAt": "2026-07-23T16:03:31.198Z"
+    "saved": "2026-06-08T08:57:46.932Z",
+    "updatedAt": "2026-07-23T16:03:41.192Z"
   },
   {
+    "id": "gst_200",
     "type": "gst",
     "no": "200",
     "date": "2026-06-08",
@@ -72,13 +67,6 @@
         "q": "1",
         "r": "1100",
         "a": 1100
-      },
-      {
-        "p": "",
-        "h": "",
-        "q": "0",
-        "r": "0",
-        "a": 0
       }
     ],
     "applyGst": false,
@@ -89,11 +77,12 @@
     "cgst": 0,
     "sgst": 0,
     "grand": 1700,
-    "saved": "2026-06-08T08:55:00.816Z",
     "signatureUrl": "",
-    "updatedAt": "2026-07-23T16:03:31.198Z"
+    "saved": "2026-06-08T08:55:00.816Z",
+    "updatedAt": "2026-07-23T16:03:41.192Z"
   },
   {
+    "id": "quotation_199",
     "type": "quotation",
     "no": "199",
     "date": "2026-06-08",
@@ -129,11 +118,12 @@
     "cgst": 9.9,
     "sgst": 9.9,
     "grand": 129.8,
-    "saved": "2026-06-08T05:30:38.946Z",
     "signatureUrl": "",
-    "updatedAt": "2026-07-23T16:03:31.198Z"
+    "saved": "2026-06-08T05:30:38.946Z",
+    "updatedAt": "2026-07-23T16:03:41.192Z"
   },
   {
+    "id": "gst_198",
     "type": "gst",
     "no": "198",
     "date": "2026-05-25",
@@ -159,66 +149,18 @@
         "q": "1",
         "r": "7000",
         "a": 7000
-      },
-      {
-        "p": "",
-        "h": "",
-        "q": "0",
-        "r": "0",
-        "a": 0
       }
     ],
     "applyGst": true,
     "sub": 19500,
+    "discount": 0,
+    "discountAmt": 0,
+    "subAfterDiscount": 19500,
     "cgst": 1755,
     "sgst": 1755,
     "grand": 23010,
+    "signatureUrl": "https://res.cloudinary.com/dci6zeb1n/image/upload/v1779703965/svs_billing_signatures/jjvwihgtexwvko6yqg99.png",
     "saved": "2026-05-25T10:40:37.985Z",
-    "signatureUrl": "https://res.cloudinary.com/dci6zeb1n/image/upload/v1779703965/svs_billing_signatures/jjvwihgtexwvko6yqg99.png",
-    "updatedAt": "2026-07-23T16:03:31.198Z"
-  },
-  {
-    "type": "gst",
-    "no": "001",
-    "date": "2026-05-25",
-    "po": "4400311297",
-    "transport": "",
-    "cname": "AVENUE SUPERMARTS LTD",
-    "caddr": "Himayath Nagar D-Mart",
-    "cgstin": "36AACCA8432H1ZR",
-    "sname": "",
-    "saddr": "",
-    "sgstin": "",
-    "rows": [
-      {
-        "p": "D3 BoreWell Lifting and Repairing Charges",
-        "h": "998719",
-        "q": "50",
-        "r": "250",
-        "a": 12500
-      },
-      {
-        "p": "Installition Charges",
-        "h": "998739",
-        "q": "1",
-        "r": "7000",
-        "a": 7000
-      },
-      {
-        "p": "",
-        "h": "",
-        "q": "0",
-        "r": "0",
-        "a": 0
-      }
-    ],
-    "applyGst": true,
-    "sub": 19500,
-    "cgst": 1755,
-    "sgst": 1755,
-    "grand": 23010,
-    "saved": "2026-05-25T10:28:25.868Z",
-    "signatureUrl": "https://res.cloudinary.com/dci6zeb1n/image/upload/v1779703965/svs_billing_signatures/jjvwihgtexwvko6yqg99.png",
-    "updatedAt": "2026-07-23T16:03:31.198Z"
+    "updatedAt": "2026-07-23T16:03:41.192Z"
   }
 ]
