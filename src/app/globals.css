@@ -289,3 +289,30 @@ table.it td.amt{text-align:right;font-weight:500;font-size:11px;color:#003399;pa
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes waveMotion {
+  0%, 100% {
+    height: 12px;
+  }
+  50% {
+    height: 26px;
+  }
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
