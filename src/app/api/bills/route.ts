@@ -174,6 +174,16 @@ export async function GET() {
   }
 }
 
+function deduplicateRowsById(rows: SupabaseBillRow[]): SupabaseBillRow[] {
+  const map = new Map<string, SupabaseBillRow>();
+  for (const r of rows) {
+    if (r && r.id) {
+      map.set(r.id, r);
+    }
+  }
+  return Array.from(map.values());
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -201,12 +211,14 @@ export async function POST(req: Request) {
     // Bulk bills save/merge
     const incomingBills = Array.isArray(body) ? body : body.bills;
     if (Array.isArray(incomingBills)) {
-      const rows: SupabaseBillRow[] = incomingBills
+      const rawRows: SupabaseBillRow[] = incomingBills
         .map((b: any) => formatBillForSupabase(b))
         .filter((r: SupabaseBillRow | null): r is SupabaseBillRow => r !== null);
 
-      if (rows.length > 0) {
-        const { error } = await supabase.from("bills").upsert(rows, { onConflict: "id" });
+      const uniqueRows = deduplicateRowsById(rawRows);
+
+      if (uniqueRows.length > 0) {
+        const { error } = await supabase.from("bills").upsert(uniqueRows, { onConflict: "id" });
         if (error) {
           console.error("Supabase bulk upsert error:", error);
           throw new Error(error.message);
@@ -229,12 +241,14 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const incomingBills = Array.isArray(body) ? body : body.bills || [];
 
-    const rows: SupabaseBillRow[] = incomingBills
+    const rawRows: SupabaseBillRow[] = incomingBills
       .map((b: any) => formatBillForSupabase(b))
       .filter((r: SupabaseBillRow | null): r is SupabaseBillRow => r !== null);
 
-    if (rows.length > 0) {
-      const { error } = await supabase.from("bills").upsert(rows, { onConflict: "id" });
+    const uniqueRows = deduplicateRowsById(rawRows);
+
+    if (uniqueRows.length > 0) {
+      const { error } = await supabase.from("bills").upsert(uniqueRows, { onConflict: "id" });
       if (error) {
         throw new Error(error.message);
       }
