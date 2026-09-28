@@ -2484,8 +2484,11 @@ export default function App() {
     return !isNaN(num) && num > 0 ? String(num).padStart(3, "0") : (raw || "001");
   };
 
-  const calculateNextBillNo = (billsList: any[], _type?: BillType): string => {
-    const allNums = (billsList || [])
+  const calculateNextBillNo = (billsList: any[], type?: BillType): string => {
+    const list = type
+      ? (billsList || []).filter((b: any) => (b.type || 'gst').toLowerCase() === type.toLowerCase())
+      : (billsList || []);
+    const allNums = list
       .map((b: any) => parseInt(String(b.no).replace(/\D/g, ""), 10))
       .filter((n: number) => !isNaN(n) && n > 0);
     const maxNo = allNums.length > 0 ? Math.max(...allNums) : 0;
@@ -2506,37 +2509,25 @@ export default function App() {
 
   useEffect(() => {
     const initData = async () => {
-      let localSaved: any[] = [];
+      // Clear legacy local storage so no device-specific stale data persists
       try {
-        localSaved = JSON.parse(localStorage.getItem('svs4') || '[]');
+        localStorage.removeItem('svs4');
       } catch (e) {}
 
       try {
         const res = await fetch('/api/bills');
         const json = await res.json();
         if (json && json.success && Array.isArray(json.bills)) {
-          // Merge local and server without duplicates
-          const mergedRes = await fetch('/api/bills', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bills: [...json.bills, ...localSaved] }),
-          });
-          const mergedJson = await mergedRes.json();
-          if (mergedJson && mergedJson.success && Array.isArray(mergedJson.bills)) {
-            setBills(mergedJson.bills);
-            try { localStorage.setItem('svs4', JSON.stringify(mergedJson.bills)); } catch (e) {}
-            const next = calculateNextBillNo(mergedJson.bills, btype);
-            setNo(next);
-            return;
-          }
+          setBills(json.bills);
+          const next = calculateNextBillNo(json.bills, btype);
+          setNo(next);
+        } else {
+          setBills([]);
+          setNo(calculateNextBillNo([], btype));
         }
       } catch (err) {
-        console.warn('Server fetch failed, using local storage:', err);
+        console.error('Failed to fetch centralized bills:', err);
       }
-
-      setBills(localSaved);
-      const next = calculateNextBillNo(localSaved, btype);
-      setNo(next);
 
       const savedConv = localStorage.getItem('svs_active_conv');
       if (savedConv) {
@@ -2625,7 +2616,7 @@ export default function App() {
     if (!editingBillId || editingBillId !== targetKey) {
       const isDuplicate = bills.some(b => `${(b.type || 'gst').toLowerCase()}_${formatBillNo(b.no)}` === targetKey);
       if (isDuplicate) {
-        finalNo = calculateNextBillNo(bills);
+        finalNo = calculateNextBillNo(bills, btype);
         setNo(finalNo);
       }
     }
@@ -2655,16 +2646,9 @@ export default function App() {
       saved: new Date().toISOString()
     };
 
-    const newBills = [...bills];
-    const idx = newBills.findIndex(b => (b.id && b.id === d.id) || `${(b.type || 'gst').toLowerCase()}_${formatBillNo(b.no)}` === `${d.type}_${d.no}`);
-    if (idx >= 0) newBills[idx] = d;
-    else newBills.unshift(d);
-    
-    setBills(newBills);
-    try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
     setEditingBillId(null);
 
-    // Sync with backend API
+    // Save directly to Supabase via backend API
     try {
       const res = await fetch('/api/bills', {
         method: 'POST',
@@ -2674,7 +2658,6 @@ export default function App() {
       const json = await res.json();
       if (json && json.success && Array.isArray(json.bills)) {
         setBills(json.bills);
-        try { localStorage.setItem('svs4', JSON.stringify(json.bills)); } catch (e) {}
       }
     } catch (e) {
       console.error('Error saving to server:', e);
@@ -2710,11 +2693,6 @@ export default function App() {
   const delBill = async (target: any) => {
     if (!target || !target.no) return;
     if (!confirm(`Delete bill #${target.no} (${(target.type || 'gst').toUpperCase()})?`)) return;
-    
-    const key = `${(target.type || 'gst').toLowerCase()}_${formatBillNo(target.no)}`;
-    const newBills = bills.filter(b => `${(b.type || 'gst').toLowerCase()}_${formatBillNo(b.no)}` !== key);
-    setBills(newBills);
-    try { localStorage.setItem('svs4', JSON.stringify(newBills)); } catch (e) {}
 
     try {
       const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
@@ -2723,7 +2701,6 @@ export default function App() {
       const json = await res.json();
       if (json && json.success && Array.isArray(json.bills)) {
         setBills(json.bills);
-        try { localStorage.setItem('svs4', JSON.stringify(json.bills)); } catch (e) {}
       }
     } catch (e) {
       console.error('Error deleting from server:', e);
