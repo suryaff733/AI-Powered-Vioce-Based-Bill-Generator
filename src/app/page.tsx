@@ -961,6 +961,12 @@ export default function App() {
   const [bills, setBills] = useState<any[]>([]);
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
 
+  // Loading and Sync States
+  const [isLoadingBills, setIsLoadingBills] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'syncing' | 'synced' | 'error'>('syncing');
+
   // History Search & Filter States
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
@@ -2514,6 +2520,9 @@ export default function App() {
         localStorage.removeItem('svs4');
       } catch (e) {}
 
+      setIsLoadingBills(true);
+      setSyncStatus('syncing');
+
       try {
         const res = await fetch('/api/bills');
         const json = await res.json();
@@ -2521,12 +2530,17 @@ export default function App() {
           setBills(json.bills);
           const next = calculateNextBillNo(json.bills, btype);
           setNo(next);
+          setSyncStatus('synced');
         } else {
           setBills([]);
           setNo(calculateNextBillNo([], btype));
+          setSyncStatus('synced');
         }
       } catch (err) {
         console.error('Failed to fetch centralized bills:', err);
+        setSyncStatus('error');
+      } finally {
+        setIsLoadingBills(false);
       }
 
       const savedConv = localStorage.getItem('svs_active_conv');
@@ -2647,6 +2661,8 @@ export default function App() {
     };
 
     setEditingBillId(null);
+    setIsSaving(true);
+    setSyncStatus('syncing');
 
     // Save directly to Supabase via backend API
     try {
@@ -2658,9 +2674,15 @@ export default function App() {
       const json = await res.json();
       if (json && json.success && Array.isArray(json.bills)) {
         setBills(json.bills);
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('error');
       }
     } catch (e) {
       console.error('Error saving to server:', e);
+      setSyncStatus('error');
+    } finally {
+      setIsSaving(false);
     }
 
     setActiveSec('history');
@@ -2694,6 +2716,10 @@ export default function App() {
     if (!target || !target.no) return;
     if (!confirm(`Delete bill #${target.no} (${(target.type || 'gst').toUpperCase()})?`)) return;
 
+    const targetKey = target.id || `${target.type || 'gst'}_${target.no}`;
+    setDeletingBillId(targetKey);
+    setSyncStatus('syncing');
+
     try {
       const res = await fetch(`/api/bills?no=${encodeURIComponent(target.no)}&type=${encodeURIComponent(target.type || 'gst')}`, {
         method: 'DELETE',
@@ -2701,9 +2727,15 @@ export default function App() {
       const json = await res.json();
       if (json && json.success && Array.isArray(json.bills)) {
         setBills(json.bills);
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('error');
       }
     } catch (e) {
       console.error('Error deleting from server:', e);
+      setSyncStatus('error');
+    } finally {
+      setDeletingBillId(null);
     }
   };
 
@@ -2850,7 +2882,17 @@ export default function App() {
         </div>
       )}
       <div className="topbar">
-        <div className="topbar-title">SVS Billing</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: "180px" }}>
+          <div className="topbar-title" style={{ flex: "none" }}>SVS Billing</div>
+          <div className={`cloud-badge ${syncStatus}`}>
+            {syncStatus === 'syncing' && <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />}
+            {syncStatus === 'synced' && <span style={{ color: '#059669', fontSize: 10 }}>●</span>}
+            {syncStatus === 'error' && <span style={{ color: '#dc2626', fontSize: 10 }}>●</span>}
+            <span>
+              {syncStatus === 'syncing' ? 'Syncing...' : syncStatus === 'synced' ? 'Cloud Synced' : 'Sync Error'}
+            </span>
+          </div>
+        </div>
         <div className="tabs" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <button
             type="button"
@@ -2893,7 +2935,9 @@ export default function App() {
       <div className="nav">
         <div className={`nav-tab ${activeSec === 'create' ? 'on' : ''}`} onClick={() => setActiveSec('create')}>Create</div>
         <div className={`nav-tab ${activeSec === 'preview' ? 'on' : ''}`} onClick={() => setActiveSec('preview')}>Preview</div>
-        <div className={`nav-tab ${activeSec === 'history' ? 'on' : ''}`} onClick={() => setActiveSec('history')}>History (<span id="hc">{bills.length}</span>)</div>
+        <div className={`nav-tab ${activeSec === 'history' ? 'on' : ''}`} onClick={() => setActiveSec('history')}>
+          History (<span id="hc">{isLoadingBills ? '...' : bills.length}</span>)
+        </div>
       </div>
 
       {activeSec === 'create' && (
@@ -3000,7 +3044,21 @@ export default function App() {
           <div className="act-row">
             <button className="btn" onClick={resetForm}>Reset</button>
             <button className="btn" onClick={() => setActiveSec('preview')}>Preview</button>
-            <button className="btn btn-blue" onClick={saveBill}>Save Bill</button>
+            <button
+              className="btn btn-blue"
+              onClick={saveBill}
+              disabled={isSaving}
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              {isSaving ? (
+                <>
+                  <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                'Save Bill'
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -3016,9 +3074,35 @@ export default function App() {
           </div>
           <div className="act-row">
             <button className="btn" onClick={() => setActiveSec('create')}>← Edit</button>
-            <button className="btn btn-blue" onClick={saveBill}>Save</button>
-            <button className="btn btn-green" onClick={downloadPDF} disabled={isDownloading}>
-              {isDownloading ? 'Generating...' : '⬇ Download PDF'}
+            <button
+              className="btn btn-blue"
+              onClick={saveBill}
+              disabled={isSaving}
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              {isSaving ? (
+                <>
+                  <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                'Save'
+              )}
+            </button>
+            <button
+              className="btn btn-green"
+              onClick={downloadPDF}
+              disabled={isDownloading}
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              {isDownloading ? (
+                <>
+                  <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
+                  <span>Generating PDF...</span>
+                </>
+              ) : (
+                '⬇ Download PDF'
+              )}
             </button>
           </div>
           {/* Hidden iframe for PDF generation to ensure perfect rendering outside flexboxes */}
@@ -3113,12 +3197,19 @@ export default function App() {
             </div>
           </div>
 
-          {!filteredBills.length ? (
+          {isLoadingBills ? (
+            <div className="loading-container">
+              <span className="spinner spinner-lg" />
+              <div className="loading-text">Loading bills from database...</div>
+            </div>
+          ) : !filteredBills.length ? (
             <div className="empty">
               {bills.length === 0 ? "No saved bills yet." : "No bills match your current search/filter criteria."}
             </div>
           ) : (
             filteredBills.map((b, idx) => {
+              const itemKey = b.id || `${b.type}_${b.no}`;
+              const isDeletingThis = deletingBillId === itemKey;
               return (
                 <div key={b.id || `${b.type}_${b.no}_${idx}`} className="hist-item" onClick={() => loadBill(b)}>
                   <div style={{ flex: 1 }}>
@@ -3133,7 +3224,14 @@ export default function App() {
                   <div style={{ display: "flex", gap: "4px" }} onClick={e => e.stopPropagation()}>
                     <button className="btn btn-sm" onClick={() => loadBill(b)}>Edit</button>
                     <button className="btn btn-green btn-sm" onClick={() => { loadBill(b); setTimeout(() => setActiveSec('preview'), 100); }}>PDF</button>
-                    <button className="btn btn-red btn-sm" onClick={() => delBill(b)}>Del</button>
+                    <button
+                      className="btn btn-red btn-sm"
+                      disabled={isDeletingThis}
+                      onClick={() => delBill(b)}
+                      style={{ minWidth: "36px", display: "inline-flex", justifyContent: "center", alignItems: "center" }}
+                    >
+                      {isDeletingThis ? <span className="spinner" style={{ width: 10, height: 10 }} /> : 'Del'}
+                    </button>
                   </div>
                 </div>
               );
