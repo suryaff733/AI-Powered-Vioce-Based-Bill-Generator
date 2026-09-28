@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { supabase } from "@/lib/supabase";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const BILLS_FILE = path.join(DATA_DIR, "bills.json");
@@ -27,7 +28,7 @@ function getBillKey(b: any): string {
   return `${type}_${no}`;
 }
 
-function sortBills(list: any[]): any[] {
+export function sortBills(list: any[]): any[] {
   return [...list].sort((a, b) => {
     const dateA = a.date || "";
     const dateB = b.date || "";
@@ -117,16 +118,13 @@ export function deduplicateBills(list: any[]): any[] {
     const clean = sanitizeBill(item);
     if (!clean) continue;
 
-    // Generate content fingerprint based on customer, date, grand total, and items
     const rowsFingerprint = (clean.rows || [])
       .filter((r: any) => r.p || r.a)
       .map((r: any) => `${r.p}|${r.q}|${r.r}|${r.a}`)
       .join(";");
     const contentKey = `${clean.type}|${clean.cname.toLowerCase().trim()}|${clean.date}|${clean.po.toLowerCase().trim()}|${clean.grand}|${rowsFingerprint}`;
-
     const billKey = getBillKey(clean);
 
-    // If identical content exists, keep the one with the higher bill number or newer update
     if (contentMap.has(contentKey)) {
       const existing = contentMap.get(contentKey);
       const numExisting = parseInt(String(existing.no).replace(/\D/g, ""), 10) || 0;
@@ -145,7 +143,7 @@ export function deduplicateBills(list: any[]): any[] {
   return sortBills(Array.from(keyMap.values()));
 }
 
-function readBills(): any[] {
+function readBillsLocal(): any[] {
   ensureFileExists();
   try {
     const content = fs.readFileSync(BILLS_FILE, "utf-8");
@@ -161,7 +159,7 @@ function readBills(): any[] {
         const recovered = JSON.parse(bakContent || "[]");
         if (Array.isArray(recovered)) {
           const deduped = deduplicateBills(recovered);
-          writeBillsAtomic(deduped);
+          writeBillsLocal(deduped);
           return deduped;
         }
       }
@@ -172,19 +170,16 @@ function readBills(): any[] {
   }
 }
 
-function writeBillsAtomic(bills: any[]): boolean {
+function writeBillsLocal(bills: any[]): boolean {
   ensureFileExists();
   try {
     const deduped = deduplicateBills(bills);
-    // 1. Create a backup of current valid bills file
     if (fs.existsSync(BILLS_FILE)) {
       try {
         fs.copyFileSync(BILLS_FILE, BILLS_BAK_FILE);
       } catch (e) {}
     }
-    // 2. Write to temporary file first (prevents partial write crashes)
     fs.writeFileSync(BILLS_TMP_FILE, JSON.stringify(deduped, null, 2), "utf-8");
-    // 3. Atomically rename temporary file to actual file
     fs.renameSync(BILLS_TMP_FILE, BILLS_FILE);
     return true;
   } catch (err) {
@@ -199,15 +194,55 @@ function writeBillsAtomic(bills: any[]): boolean {
   }
 }
 
-function mergeBillsList(existingList: any[], incomingList: any[]): any[] {
-  const all = [...existingList, ...incomingList];
-  return deduplicateBills(all);
+interface SupabaseBillRow {
+  id: string;
+  type: string;
+  no: string;
+  date: string;
+  cname: string;
+  grand: number;
+  data: any;
+  updated_at: string;
+}
+
+function formatBillForSupabase(b: any): SupabaseBillRow | null {
+  const clean = sanitizeBill(b);
+  if (!clean) return null;
+  return {
+    id: clean.id,
+    type: clean.type,
+    no: clean.no,
+    date: clean.date || "",
+    cname: clean.cname || "",
+    grand: clean.grand || 0,
+    data: clean,
+    updated_at: new Date().toISOString(),
+  };
 }
 
 export async function GET() {
   try {
-    const bills = readBills();
-    return NextResponse.json({ success: true, bills }, { status: 200 });
+    // 1. Try fetching from Supabase
+    try {
+      const { data, error } = await supabase
+        .from("bills")
+        .select("data")
+        .order("date", { ascending: false });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const cloudBills = data.map((d: any) => d.data).filter(Boolean);
+        const deduped = deduplicateBills(cloudBills);
+        // Sync to local file cache
+        writeBillsLocal(deduped);
+        return NextResponse.json({ success: true, bills: deduped, source: "supabase" }, { status: 200 });
+      }
+    } catch (sbErr) {
+      console.warn("Supabase fetch failed or table not yet created, falling back to local storage:", sbErr);
+    }
+
+    // 2. Fallback to local storage
+    const bills = readBillsLocal();
+    return NextResponse.json({ success: true, bills, source: "local" }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
@@ -216,15 +251,18 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const currentBills = readBills();
+    const currentBills = readBillsLocal();
 
     // Check if deduplication action is explicitly requested
     if (body && body.action === "deduplicate") {
       const deduped = deduplicateBills(currentBills);
-      writeBillsAtomic(deduped);
+      writeBillsLocal(deduped);
       return NextResponse.json({ success: true, bills: deduped, message: "Deduplication successful" }, { status: 200 });
     }
 
+    let updatedBills: any[] = [];
+
+    // Single bill save/update
     if (body && !Array.isArray(body) && (body.no !== undefined || body.id !== undefined)) {
       const cleanBill = sanitizeBill({ ...body, updatedAt: new Date().toISOString() });
       if (!cleanBill) {
@@ -239,15 +277,40 @@ export async function POST(req: Request) {
         currentBills.unshift(cleanBill);
       }
       
-      const deduped = deduplicateBills(currentBills);
-      writeBillsAtomic(deduped);
-      return NextResponse.json({ success: true, bills: deduped }, { status: 200 });
+      updatedBills = deduplicateBills(currentBills);
+      writeBillsLocal(updatedBills);
+
+      // Persist to Supabase
+      try {
+        const row = formatBillForSupabase(cleanBill);
+        if (row) {
+          await supabase.from("bills").upsert(row, { onConflict: "id" });
+        }
+      } catch (sbErr) {
+        console.warn("Supabase upsert failed:", sbErr);
+      }
+
+      return NextResponse.json({ success: true, bills: updatedBills }, { status: 200 });
     }
 
+    // Bulk bills save/merge
     const incomingBills = Array.isArray(body) ? body : body.bills;
     if (Array.isArray(incomingBills)) {
-      const merged = mergeBillsList(currentBills, incomingBills);
-      writeBillsAtomic(merged);
+      const merged = deduplicateBills([...currentBills, ...incomingBills]);
+      writeBillsLocal(merged);
+
+      // Persist to Supabase
+      try {
+        const rows: SupabaseBillRow[] = incomingBills
+          .map((b: any) => formatBillForSupabase(b))
+          .filter((r: SupabaseBillRow | null): r is SupabaseBillRow => r !== null);
+        if (rows.length > 0) {
+          await supabase.from("bills").upsert(rows, { onConflict: "id" });
+        }
+      } catch (sbErr) {
+        console.warn("Supabase bulk upsert failed:", sbErr);
+      }
+
       return NextResponse.json({ success: true, bills: merged }, { status: 200 });
     }
 
@@ -261,10 +324,21 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json();
     const incomingBills = Array.isArray(body) ? body : body.bills || [];
-    const currentBills = readBills();
+    const currentBills = readBillsLocal();
 
-    const merged = mergeBillsList(currentBills, incomingBills);
-    writeBillsAtomic(merged);
+    const merged = deduplicateBills([...currentBills, ...incomingBills]);
+    writeBillsLocal(merged);
+
+    try {
+      const rows: SupabaseBillRow[] = incomingBills
+        .map((b: any) => formatBillForSupabase(b))
+        .filter((r: SupabaseBillRow | null): r is SupabaseBillRow => r !== null);
+      if (rows.length > 0) {
+        await supabase.from("bills").upsert(rows, { onConflict: "id" });
+      }
+    } catch (sbErr) {
+      console.warn("Supabase PUT upsert failed:", sbErr);
+    }
 
     return NextResponse.json({ success: true, bills: merged }, { status: 200 });
   } catch (error: any) {
@@ -279,11 +353,13 @@ export async function DELETE(req: Request) {
     const type = url.searchParams.get("type")?.toLowerCase().trim();
     const id = url.searchParams.get("id")?.trim();
 
-    let currentBills = readBills();
+    let currentBills = readBillsLocal();
+    let targetId = id;
 
     if (id) {
       currentBills = currentBills.filter((b) => String(b.id).trim() !== id && getBillKey(b) !== id);
     } else if (no && type) {
+      targetId = `${type}_${no}`;
       currentBills = currentBills.filter((b) => !(String(b.no).trim() === no && String(b.type).toLowerCase().trim() === type));
     } else if (no) {
       currentBills = currentBills.filter((b) => String(b.no).trim() !== no);
@@ -292,10 +368,21 @@ export async function DELETE(req: Request) {
     }
 
     const deduped = deduplicateBills(currentBills);
-    writeBillsAtomic(deduped);
+    writeBillsLocal(deduped);
+
+    // Delete from Supabase
+    try {
+      if (targetId) {
+        await supabase.from("bills").delete().eq("id", targetId);
+      } else if (no) {
+        await supabase.from("bills").delete().eq("no", no);
+      }
+    } catch (sbErr) {
+      console.warn("Supabase delete failed:", sbErr);
+    }
+
     return NextResponse.json({ success: true, bills: deduped }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
-
