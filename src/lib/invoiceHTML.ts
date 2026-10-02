@@ -185,10 +185,10 @@ export function invHTML_simple(d: InvoiceData): string {
 
     '<div style="font-size:16px;color:#003399;margin-bottom:6px;padding:0 8px;display:flex;align-items:flex-end;">' +
     '<span style="white-space:nowrap;margin-right:12px;font-weight:700;">M/s.</span>' +
-    '<div style="border-bottom:1px solid #003399;flex:1;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:18px;font-weight:700;padding-bottom:2px;padding-left:8px;">' + esc(d.cname || '') + '</div>' +
+    '<div style="border-bottom:1px solid #003399;flex:1;min-height:22px;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:18px;font-weight:700;padding-bottom:2px;padding-left:8px;word-break:break-word;line-height:1.3;">' + esc(d.cname || '') + '</div>' +
     '</div>' +
-    '<div style="font-size:16px;color:#003399;margin-bottom:14px;padding:0 8px;display:flex;align-items:flex-end;">' +
-    '<div style="border-bottom:1px solid #003399;width:100%;height:22px;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:16px;padding-bottom:2px;padding-left:8px;">' + esc(d.caddr || '') + '</div>' +
+    '<div style="font-size:16px;color:#003399;margin-bottom:10px;padding:0 8px;display:flex;">' +
+    '<div style="border-bottom:1px solid #003399;width:100%;min-height:22px;color:#000;font-family:\'Courier New\',Courier,monospace;font-size:14px;padding-bottom:4px;padding-left:8px;word-break:break-word;line-height:1.35;white-space:pre-wrap;">' + esc(d.caddr || '') + '</div>' +
     '</div>' +
 
     '<div style="border-top:1px solid #003399;"></div>' +
