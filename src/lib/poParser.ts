@@ -301,17 +301,13 @@ export function smartStandardizeItem(
     if (!h) h = "998719";
   }
 
-  // 3. Transport Charges / Transport Charges AU [SAC: 998719 / 996799]
+  // 3. Transport Charges / Transport Charges [SAC: 998719 / 996799]
   else if (/\b(?:transport(?:ation)?(?:\s*charges?)?|freight(?:\s*charges?)?|cartage|delivery\s*charges?)\b/i.test(p)) {
-    if (!/Transport\s*Charges/i.test(p)) {
-      standardizedFrom = p;
-    }
-    p = "Transport Charges AU";
     if (!h) h = "998719";
   }
 
-  // 4. Other Accessories / Other Accessories [SAC: 995433]
-  else if (/\b(?:other\s*accessories|accessories|borewell\s*accessories|fitting\s*materials?|hardware\s*accessories)\b/i.test(p)) {
+  // 4. Other Accessories / Accessories [SAC: 995433]
+  else if (/^(?:other\s*accessories|accessories|borewell\s*accessories|fitting\s*materials?|hardware\s*accessories)$/i.test(p)) {
     if (p !== "Other Accessories") {
       standardizedFrom = p;
       p = "Other Accessories";
@@ -737,6 +733,122 @@ export function parsePOAndInvoiceText(rawText: string, filename?: string): Extra
     }
   }
 
+  // Stage B0: Enterprise SAP / DMart & Multi-Line Table Parser
+  // Handles items where Description, HSN, and Quantity/Rate/Amount span 2 to 4 lines
+  if (parsedRows.length === 0) {
+    const sapMultiRows: Array<{ p: string; h: string; q: string; r: string; a: number }> = [];
+    let currentSapHeader: { sNo?: string; itemCode?: string; hsn?: string; descParts: string[] } | null = null;
+    const rSapNumbers = /^(EA|M|AU|NOS|SET|UNT|KGS?|MTR|PCS|PAC)\s+(\d+(?:\.\d+)?)\s+([0-9,]+(?:\.\d{1,2})?)\s+([0-9,]+(?:\.\d{1,2})?)/i;
+    const rSapSingle = /^(?:(\d+)\s+)?(?:(\d{7,10})\s+)?(?:(\d{4,8})\s+)?(.+?)\s+(EA|M|AU|NOS|SET|UNT|KGS?|MTR|PCS|PAC)\s+(\d+(?:\.\d+)?)\s+([0-9,]+(?:\.\d{1,2})?)\s+([0-9,]+(?:\.\d{1,2})?)/i;
+    const rSapStart1 = /^(?:(\d+)\s+)?(?:(\d{7,10})\s+)?(\d{4,8})\s+(.+)$/;
+    const rSapStart2 = /^(\d+)\s+([A-Za-z].+)$/;
+    const rSapStart3 = /^(\d{7,10})\s+(.+)$/;
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+
+      if (/^Bill to and Place of Supply/i.test(line) || /^Hyderabad/i.test(line) || /^Charmas Lane/i.test(line) || /^Opp Mahaboob/i.test(line)) {
+        continue;
+      }
+      if (/^(?:Page Total|Carry Forward|Total\s+\d|Grand Total|Terms Of Payment|Amount In Words)/i.test(line)) {
+        currentSapHeader = null;
+        continue;
+      }
+
+      const numMatch = line.match(rSapNumbers);
+      if (numMatch && currentSapHeader) {
+        const [, unit, qty, rate, amt] = numMatch;
+        let fullDesc = currentSapHeader.descParts.join(" ")
+          .replace(/#/g, " ")
+          .replace(/\bpum\s*p\b/gi, "pump")
+          .replace(/\binstal\s*lation\b/gi, "Installation")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const qNum = parseCleanNumber(qty) || 1;
+        const rNum = parseCleanNumber(rate);
+        const aNum = parseCleanNumber(amt) || Math.round(qNum * rNum * 100) / 100;
+
+        if (fullDesc.length > 1 && (aNum > 0 || rNum > 0)) {
+          sapMultiRows.push(reconcileRow({
+            p: fullDesc,
+            h: currentSapHeader.hsn || (isDMart ? getAutoHsn(fullDesc) : ""),
+            q: String(qNum),
+            r: String(rNum),
+            a: aNum,
+          }));
+        }
+        currentSapHeader = null;
+        continue;
+      }
+
+      const singleMatch = line.match(rSapSingle);
+      if (singleMatch) {
+        const [, sNo, itemCode, hsn, desc, unit, qty, rate, amt] = singleMatch;
+        const cleanDesc = desc.replace(/#/g, " ").replace(/\s+/g, " ").trim();
+        const qNum = parseCleanNumber(qty) || 1;
+        const rNum = parseCleanNumber(rate);
+        const aNum = parseCleanNumber(amt) || Math.round(qNum * rNum * 100) / 100;
+
+        if (cleanDesc.length > 1 && (aNum > 0 || rNum > 0)) {
+          sapMultiRows.push(reconcileRow({
+            p: cleanDesc,
+            h: hsn || (isDMart ? getAutoHsn(cleanDesc) : ""),
+            q: String(qNum),
+            r: String(rNum),
+            a: aNum,
+          }));
+        }
+        currentSapHeader = null;
+        continue;
+      }
+
+      const m1 = line.match(rSapStart1);
+      if (m1) {
+        const [, sNo, itemCode, hsn, desc] = m1;
+        currentSapHeader = {
+          sNo,
+          itemCode,
+          hsn,
+          descParts: [desc],
+        };
+        continue;
+      }
+
+      const m2 = line.match(rSapStart2);
+      if (m2 && !/^(?:Terms|Vendor|Contact|Date|Purchase|Office|CIN|PAN|Regd|Corporate|Total|Amount)/i.test(line)) {
+        const [, sNo, desc] = m2;
+        currentSapHeader = {
+          sNo,
+          hsn: "",
+          descParts: [desc],
+        };
+        continue;
+      }
+
+      const m3 = line.match(rSapStart3);
+      if (m3 && !/^(?:CIN|PAN|Tel|Fax|Date|Total|Amount)/i.test(line)) {
+        const [, itemCode, desc] = m3;
+        currentSapHeader = {
+          itemCode,
+          hsn: "",
+          descParts: [desc],
+        };
+        continue;
+      }
+
+      if (currentSapHeader) {
+        if (!/^(?:S\.No|Item Code|Description|Rate|Taxable|SGST|CGST|CESS|Total Value|Terms|Please Note|Bill to)/i.test(line)) {
+          currentSapHeader.descParts.push(line);
+        }
+      }
+    }
+
+    if (sapMultiRows.length > 0) {
+      parsedRows.push(...sapMultiRows);
+    }
+  }
+
   // Stage B: Regex Row Parsers (DMart/SAP, Tally ERP 9, Standard GST Invoices)
   if (parsedRows.length === 0) {
     // Regex 1: DMart/SAP ItemCode (5-10 digits) + HSN (4-8 digits) before description
@@ -1053,41 +1165,6 @@ export function parsePOAndInvoiceText(rawText: string, filename?: string): Extra
     result.rows = result.rows
       .map(r => reconcileRow(r))
       .filter(r => r.p && !isTaxOrSummaryRow(r.p));
-  }
-
-  // Fallback: Smart Filename-Based Item Generation if OCR/PDF had zero text table layer
-  if ((!result.rows || result.rows.length === 0) && filename && !/^SVS_/i.test(filename)) {
-    if (/borewell\s*repair|borewell|repair\s*charges/i.test(filename)) {
-      result.rows = [
-        {
-          p: "Borewell repair & maintenance charges",
-          h: "998719",
-          q: "1",
-          r: "60600.00",
-          a: 60600,
-        },
-      ];
-    } else if (/borewell\s*pump|3hp|pump\s*set/i.test(filename)) {
-      result.rows = [
-        {
-          p: "Kirloskar 3HP, 30-stage borewell pump set",
-          h: "84137095",
-          q: "1",
-          r: "32200.00",
-          a: 32200,
-        },
-      ];
-    } else if (/rewinding|motor/i.test(filename)) {
-      result.rows = [
-        {
-          p: "Submersible motor rewinding charges",
-          h: "998719",
-          q: "1",
-          r: "6500.00",
-          a: 6500,
-        },
-      ];
-    }
   }
 
   // Always enable GST for GST invoices, DMart POs, or documents containing GST references

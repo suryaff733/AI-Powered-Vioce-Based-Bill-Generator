@@ -4,17 +4,44 @@ import { parsePOAndInvoiceText, sanitizeAddress, reconcileRow, isTaxOrSummaryRow
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Fallback: extract uncompressed or plain ASCII text from PDF streams directly
+function extractRawTextFromPdf(buffer: Buffer): string {
+  try {
+    const str = buffer.toString("binary");
+    const matches: string[] = [];
+    const textBlockRegex = /BT[\s\S]*?ET/g;
+    let match;
+    while ((match = textBlockRegex.exec(str)) !== null) {
+      const block = match[0];
+      const tjMatches = block.match(/\((?:[^\\)]|\\.)*\)\s*Tj/g) || [];
+      for (const tj of tjMatches) {
+        const text = tj.replace(/^\(/, "").replace(/\)\s*Tj$/, "").replace(/\\([()\\])/g, "$1");
+        if (text.trim()) matches.push(text.trim());
+      }
+      const tjArrayMatches = block.match(/\[([\s\S]*?)\]\s*TJ/g) || [];
+      for (const tja of tjArrayMatches) {
+        const inner = tja.match(/\((?:[^\\)]|\\.)*\)/g) || [];
+        const combined = inner.map(s => s.slice(1, -1).replace(/\\([()\\])/g, "$1")).join("");
+        if (combined.trim()) matches.push(combined.trim());
+      }
+    }
+    return matches.join("\n");
+  } catch {
+    return "";
+  }
+}
+
 // Pure JS PDF Text Extractor using pdfjs-dist without native canvas / binaries
 async function extractTextFromPDFBuffer(pdfBuffer: Buffer): Promise<{ text: string; pageCount: number; error?: string }> {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const uint8 = new Uint8Array(pdfBuffer);
+    const uint8 = new Uint8Array(pdfBuffer.buffer, pdfBuffer.byteOffset, pdfBuffer.byteLength);
     const loadingTask = pdfjsLib.getDocument({
       data: uint8,
       useSystemFonts: true,
       disableFontFace: true,
       verbosity: 0,
-    });
+    } as any);
     const pdfDoc = await loadingTask.promise;
     let fullText = "";
 
@@ -42,9 +69,21 @@ async function extractTextFromPDFBuffer(pdfBuffer: Buffer): Promise<{ text: stri
       fullText += pageLines.join("\n") + "\n";
     }
 
-    return { text: fullText.trim(), pageCount: pdfDoc.numPages };
+    let text = fullText.trim();
+    if (text.length < 20) {
+      const rawFallback = extractRawTextFromPdf(pdfBuffer);
+      if (rawFallback.length > text.length) {
+        text = rawFallback;
+      }
+    }
+
+    return { text, pageCount: pdfDoc.numPages };
   } catch (err: any) {
-    console.error("PDF text extraction error:", err);
+    console.error("PDF text extraction error, trying raw fallback:", err);
+    const rawFallback = extractRawTextFromPdf(pdfBuffer);
+    if (rawFallback.length > 20) {
+      return { text: rawFallback, pageCount: 1 };
+    }
     return { text: "", pageCount: 0, error: err?.message || String(err) };
   }
 }
