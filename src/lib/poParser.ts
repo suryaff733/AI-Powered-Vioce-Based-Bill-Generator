@@ -62,6 +62,57 @@ function isLegalDisclaimer(line: string): boolean {
   return /indemnif|liability|differential\s*gst|tax\s*rate\s*and\s*hsn|right\s*to\s*set-off|interest\s*and\s*penalty|terms\s*(&|and)?\s*conditions|authorized\s*signator|this\s*po\s*is\s*not\s*valid|declaration|hereby\s*confirm|agrees?\s*to\s*indemnify|cin\s*:\s*[A-Z0-9]|e\.?&o\.?e/i.test(line);
 }
 
+// Check if a line or description represents a tax summary, totals, round-off, or bank block (NOT an inventory item)
+export function isTaxOrSummaryRow(desc: string): boolean {
+  if (!desc) return true;
+  const d = desc.trim();
+  return /^(?:(?:output|input)?\s*(?:cgst|sgst|igst|gst|vat|cst|tcs|tds)|total\s*tax|round\s*off|total|grand\s*total|sub\s*total|taxable\s*value|net\s*payable|amount\s*in\s*words|bank\s*details|bank\s*name|ifsc|account\s*no|e\.?&o\.?e|declaration|terms\s*(?:&|and)\s*conditions)/i.test(d);
+}
+
+const MONTH_NAMES: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12"
+};
+
+// Safe date parser supporting ISO, DD/MM/YYYY, DD.MM.YY, textual months (e.g. 22 Oct 2026, 22nd October 2026)
+export function parseDateSafe(rawText: string): string {
+  if (!rawText) return "";
+
+  // 1. Textual Month: 22 Oct 2026, 22nd October 2026, Oct 22 2026
+  const mWord = rawText.match(/\b(\d{1,2})(?:st|nd|rd|th)?[\s\-]+([A-Za-z]{3,9})[\s\-]+(\d{4})\b/i);
+  if (mWord) {
+    const d = mWord[1].padStart(2, "0");
+    const mStr = mWord[2].slice(0, 3).toLowerCase();
+    const mNum = MONTH_NAMES[mStr] || "01";
+    const y = mWord[3];
+    return `${y}-${mNum}-${d}`;
+  }
+
+  // 2. Standard numeric dates: DD/MM/YYYY, YYYY-MM-DD, DD.MM.YY
+  const mNum = rawText.match(/(?:po\s*date|invoice\s*date|bill\s*date|dated|dt\.?|date)\s*[:=\-]?\s*(\d{1,4}[.\-\/]\d{1,2}[.\-\/]\d{2,4})/i)
+    || rawText.match(/\b(\d{1,4}[.\-\/]\d{1,2}[.\-\/]\d{2,4})\b/);
+
+  if (mNum && mNum[1]) {
+    const parts = mNum[1].trim().split(/[.\-\/]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+      } else if (parts[2].length === 4) {
+        // DD-MM-YYYY
+        return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+      } else if (parts[2].length === 2) {
+        // DD-MM-YY (e.g. 22.10.26)
+        const yr = parseInt(parts[2], 10);
+        const fullYr = yr < 50 ? `20${parts[2]}` : `19${parts[2]}`;
+        return `${fullYr}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+      }
+    }
+  }
+
+  return "";
+}
+
 // Parse number safely from string with Indian comma notation and currency symbols
 function parseCleanNumber(val: any): number {
   if (val === undefined || val === null) return 0;
@@ -317,35 +368,26 @@ export function parsePOAndInvoiceText(rawText: string, filename?: string): Extra
     || text.match(/(?:invoice\s*(?:no\.?|number|#)\s*[:=\-]?\s*([A-Za-z0-9\/\-_]+))/i);
   if (invMatch && invMatch[1]) {
     const rawInv = invMatch[1].trim();
-    if (!/^(?:date|po|transport|party|name|purchase)$/i.test(rawInv)) {
-      const numOnly = parseInt(rawInv.replace(/\D/g, ""), 10);
-      result.no = !isNaN(numOnly) && numOnly > 0 ? String(numOnly).padStart(3, "0") : rawInv;
+    // Senior Dev edge case guards: Reject common label leaks, 10-digit phone numbers, 6-digit PIN codes, and GSTINs
+    const isInvalidInv = /^(?:date|po|transport|party|name|purchase|order|number|total)$/i.test(rawInv)
+      || /^[6-9]\d{9}$/.test(rawInv) // Phone number
+      || /^[1-9]\d{5}$/.test(rawInv) // Postal PIN code
+      || /^[0-9]{2}[A-Z]{5}[0-9]{4}/.test(rawInv); // GSTIN
+
+    if (!isInvalidInv) {
+      if (/^\d+$/.test(rawInv)) {
+        const numOnly = parseInt(rawInv, 10);
+        result.no = !isNaN(numOnly) && numOnly > 0 ? String(numOnly).padStart(3, "0") : rawInv;
+      } else {
+        result.no = rawInv;
+      }
     }
   }
 
-  // 6. Extract Date (Formats: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY, Month DD YYYY)
-  const dateMatch = text.match(/(?:po\s*date|invoice\s*date|bill\s*date|dated|dt\.?|date)\s*[:=\-]?\s*(\d{1,4}[.\-\/]\d{1,2}[.\-\/]\d{2,4})/i)
-    || text.match(/\b(\d{2}[.\-\/]\d{2}[.\-\/]\d{4})\b/)
-    || text.match(/\b(\d{4}[.\-\/]\d{2}[.\-\/]\d{2})\b/);
-
-  if (dateMatch && dateMatch[1]) {
-    const rawDate = dateMatch[1].trim();
-    const parts = rawDate.split(/[.\-\/]/);
-    if (parts.length === 3) {
-      if (parts[0].length === 4) {
-        // YYYY-MM-DD
-        const y = parts[0];
-        const m = parts[1].padStart(2, "0");
-        const d = parts[2].padStart(2, "0");
-        result.date = `${y}-${m}-${d}`;
-      } else if (parts[2].length === 4) {
-        // DD-MM-YYYY or DD.MM.YYYY
-        const d = parts[0].padStart(2, "0");
-        const m = parts[1].padStart(2, "0");
-        const y = parts[2];
-        result.date = `${y}-${m}-${d}`;
-      }
-    }
+  // 6. Extract Date (Supports ISO, DD/MM/YYYY, DD.MM.YY, textual months like "22 Oct 2026")
+  const extractedDate = parseDateSafe(text);
+  if (extractedDate) {
+    result.date = extractedDate;
   }
 
   // 7. Extract GSTINs (Exclude SVS shop GSTIN: 36BXYPS4294L1Z7)
@@ -852,9 +894,11 @@ export function parsePOAndInvoiceText(rawText: string, filename?: string): Extra
     result.rows = parentRows;
   }
 
-  // Ensure all rows undergo final mathematical validation and description sanitization
+  // Ensure all rows undergo final mathematical validation, description sanitization, and tax row filtering
   if (result.rows && result.rows.length > 0) {
-    result.rows = result.rows.map(r => reconcileRow(r));
+    result.rows = result.rows
+      .map(r => reconcileRow(r))
+      .filter(r => r.p && !isTaxOrSummaryRow(r.p));
   }
 
   // Fallback: Smart Filename-Based Item Generation if OCR/PDF had zero text table layer

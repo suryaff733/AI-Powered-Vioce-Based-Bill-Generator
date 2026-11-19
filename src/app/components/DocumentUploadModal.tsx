@@ -106,8 +106,8 @@ export default function DocumentUploadModal({
       const newRows = [...(prev.rows || [])];
       newRows[index] = { ...newRows[index], [field]: val };
       if (field === "q" || field === "r") {
-        const qNum = parseFloat(newRows[index].q || "0") || 0;
-        const rNum = parseFloat(newRows[index].r || "0") || 0;
+        const qNum = parseFloat(String(newRows[index].q || "0").replace(/,/g, "")) || 0;
+        const rNum = parseFloat(String(newRows[index].r || "0").replace(/,/g, "")) || 0;
         newRows[index].a = Math.round(qNum * rNum * 100) / 100;
       }
       return { ...prev, rows: newRows };

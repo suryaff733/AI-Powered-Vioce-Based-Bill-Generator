@@ -3,7 +3,7 @@ import { PDFParse } from "pdf-parse";
 import { createWorker } from "tesseract.js";
 import path from "path";
 import fs from "fs";
-import { parsePOAndInvoiceText, sanitizeAddress, reconcileRow } from "@/lib/poParser";
+import { parsePOAndInvoiceText, sanitizeAddress, reconcileRow, isTaxOrSummaryRow } from "@/lib/poParser";
 
 // Helper for offline server-side OCR with local traineddata
 async function performServerOCR(imageBuffer: Buffer): Promise<{ text: string; error?: string }> {
@@ -152,6 +152,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file or text provided" }, { status: 400 });
     }
 
+    if (file && file.size === 0) {
+      return NextResponse.json({ error: "The uploaded file is empty (0 bytes)." }, { status: 400 });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
     let extractedText = clientOcrText || "";
     let base64ImagePayload: { mimeType: string; data: string } | undefined;
@@ -205,19 +209,16 @@ export async function POST(req: Request) {
               };
 
               // If meaningful text was empty (e.g. scanned or html2canvas PDF), run server OCR on screenshot(s)
-              if (meaningfulText.length < 30) {
-                trace.push("OCR: running performServerOCR on screenshot(s)");
-                // OCR page 1
-                const ocrRes1 = await performServerOCR(screenshotBuffer);
-                if (ocrRes1.text) {
-                  extractedText = ocrRes1.text + "\n" + extractedText;
-                }
-                // OCR page 2 if present in scanned PDF
-                if (ss && ss.pages && ss.pages.length > 1 && ss.pages[1].data) {
-                  const p2Buffer = Buffer.from(ss.pages[1].data);
-                  const ocrRes2 = await performServerOCR(p2Buffer);
-                  if (ocrRes2.text) {
-                    extractedText = extractedText + "\n" + ocrRes2.text;
+              if (meaningfulText.length < 30 && ss && ss.pages && ss.pages.length > 0) {
+                trace.push(`OCR: running performServerOCR on ${ss.pages.length} screenshot page(s)`);
+                const pagesToScan = Math.min(ss.pages.length, 5);
+                for (let pIdx = 0; pIdx < pagesToScan; pIdx++) {
+                  if (ss.pages[pIdx]?.data) {
+                    const pBuffer = Buffer.from(ss.pages[pIdx].data);
+                    const ocrRes = await performServerOCR(pBuffer);
+                    if (ocrRes.text) {
+                      extractedText = extractedText + `\n--- Page ${pIdx + 1} ---\n` + ocrRes.text;
+                    }
                   }
                 }
               }
@@ -333,7 +334,7 @@ export async function POST(req: Request) {
     if (result.rows && Array.isArray(result.rows)) {
       result.rows = result.rows
         .map((r: any) => reconcileRow(r))
-        .filter((r: any) => r.p || r.h || r.q || r.r || r.a > 0);
+        .filter((r: any) => r.p && !isTaxOrSummaryRow(r.p) && (r.a > 0 || parseFloat(r.r || "0") > 0));
     }
 
     return NextResponse.json({

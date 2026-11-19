@@ -945,7 +945,7 @@ export default function App() {
   
   const [cname, setCname] = useState("AVENUE SUPERMARTS LTD");
   const [caddr, setCaddr] = useState("");
-  const [cgstin, setCgstin] = useState("36BXYPS4294L1Z7");
+  const [cgstin, setCgstin] = useState("36AACCA8432H1ZR");
   
   const [sname, setSname] = useState("");
   const [saddr, setSaddr] = useState("");
@@ -2744,7 +2744,7 @@ export default function App() {
   const resetForm = () => {
     setCaddr(''); setSname(''); setSaddr(''); setSgstin(''); setPo(''); setTransport('');
     setCname('AVENUE SUPERMARTS LTD');
-    setCgstin('36BXYPS4294L1Z7');
+    setCgstin('36AACCA8432H1ZR');
     setDiscount(0);
     setRows([{ p: "", h: "", q: "", r: "", a: 0 }, { p: "", h: "", q: "", r: "", a: 0 }, { p: "", h: "", q: "", r: "", a: 0 }]);
     setEditingBillId(null);
