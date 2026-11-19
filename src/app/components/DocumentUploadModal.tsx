@@ -73,7 +73,18 @@ export default function DocumentUploadModal({
         body: formData,
       });
 
-      const json = await res.json();
+      const responseText = await res.text();
+      let json: any = null;
+      try {
+        json = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          res.ok
+            ? "Invalid response from server"
+            : `Server error (${res.status}): Could not process document. Please try again.`
+        );
+      }
+
       setOcrProgress(90);
 
       if (json && json.success && json.data) {

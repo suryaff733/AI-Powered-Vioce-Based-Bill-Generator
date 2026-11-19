@@ -1,55 +1,64 @@
 import { NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
-import { createWorker } from "tesseract.js";
-import path from "path";
-import fs from "fs";
-
 import { parsePOAndInvoiceText, sanitizeAddress, reconcileRow, isTaxOrSummaryRow, smartStandardizeItem } from "@/lib/poParser";
 
-// Helper for offline server-side OCR with local traineddata
-async function performServerOCR(imageBuffer: Buffer): Promise<{ text: string; error?: string }> {
-  let worker: any = null;
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+// Pure JS PDF Text Extractor using pdfjs-dist without native canvas / binaries
+async function extractTextFromPDFBuffer(pdfBuffer: Buffer): Promise<{ text: string; pageCount: number; error?: string }> {
   try {
-    const tessDataPath = path.resolve("./tessdata");
-    const workerScriptPath = path.resolve("./node_modules/tesseract.js/src/worker-script/node/index.js");
-    const hasTessData = fs.existsSync(path.join(tessDataPath, "eng.traineddata"));
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const uint8 = new Uint8Array(pdfBuffer);
+    const loadingTask = pdfjsLib.getDocument({
+      data: uint8,
+      useSystemFonts: true,
+      disableFontFace: true,
+      verbosity: 0,
+    });
+    const pdfDoc = await loadingTask.promise;
+    let fullText = "";
 
-    const workerOptions: any = {
-      workerPath: workerScriptPath,
-      gzip: false,
-    };
-    if (hasTessData) {
-      workerOptions.langPath = tessDataPath;
-      workerOptions.cachePath = tessDataPath;
-    }
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      let lastY: number | null = null;
+      const pageLines: string[] = [];
+      let currentLine = "";
 
-    worker = await createWorker("eng", 1, workerOptions);
-    const ret = await worker.recognize(imageBuffer);
-    return { text: ret && ret.data && ret.data.text ? ret.data.text : "" };
-  } catch (err: any) {
-    console.error("Server OCR error:", err);
-    return { text: "", error: err?.message || String(err) };
-  } finally {
-    if (worker) {
-      try {
-        await worker.terminate();
-      } catch (e) {
-        // ignore termination error
+      for (const item of textContent.items) {
+        if (!item || typeof (item as any).str !== "string") continue;
+        const it = item as any;
+        const y = it.transform ? it.transform[5] : 0;
+
+        if (lastY !== null && Math.abs(y - lastY) > 5) {
+          if (currentLine.trim()) pageLines.push(currentLine.trim());
+          currentLine = it.str;
+        } else {
+          currentLine += (currentLine ? " " : "") + it.str;
+        }
+        lastY = y;
       }
+      if (currentLine.trim()) pageLines.push(currentLine.trim());
+      fullText += pageLines.join("\n") + "\n";
     }
+
+    return { text: fullText.trim(), pageCount: pdfDoc.numPages };
+  } catch (err: any) {
+    console.error("PDF text extraction error:", err);
+    return { text: "", pageCount: 0, error: err?.message || String(err) };
   }
 }
 
 // Helper function to extract structured bill data from Gemini vision / LLM if available
 async function parseWithGemini(
   textPrompt: string,
-  base64Image?: { mimeType: string; data: string },
+  base64Payload?: { mimeType: string; data: string },
   apiKey?: string
 ) {
   if (!apiKey || apiKey.startsWith("AQ.")) return null;
 
   const systemInstruction = `You are an expert OCR and invoice/purchase order document parser for SVS Electrical & Mechanical Works.
-Analyze the provided document (image or extracted PDF text) and extract all billing information precisely in JSON format.
+Analyze the provided document (image, PDF, or extracted text) and extract all billing information precisely in JSON format.
 
 Important Instructions:
 1. PO: Look for Purchase Order / P.O. Number (e.g. 4800193765).
@@ -93,11 +102,11 @@ Return ONLY raw JSON, with no markdown code fences.`;
     parts.push({ text: `Document raw text content:\n${textPrompt}` });
   }
 
-  if (base64Image) {
+  if (base64Payload) {
     parts.push({
       inlineData: {
-        mimeType: base64Image.mimeType,
-        data: base64Image.data,
+        mimeType: base64Payload.mimeType,
+        data: base64Payload.data,
       },
     });
   }
@@ -107,7 +116,7 @@ Return ONLY raw JSON, with no markdown code fences.`;
   const modelsToTry = [
     process.env.GEMINI_MODEL || "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-2.5-flash"
+    "gemini-2.5-flash",
   ];
 
   for (const model of modelsToTry) {
@@ -159,116 +168,56 @@ export async function POST(req: Request) {
 
     const apiKey = process.env.GEMINI_API_KEY;
     let extractedText = clientOcrText || "";
-    let base64ImagePayload: { mimeType: string; data: string } | undefined;
+    let base64Payload: { mimeType: string; data: string } | undefined;
     let renderedScreenshotDataUrl: string | undefined;
-    let serverOcrError: string | undefined;
+    let extractionError: string | undefined;
     const trace: string[] = [];
-
-    // Self-healing: ensure pdf.worker.mjs exists in Next.js Turbopack chunks directory
-    try {
-      const chunksDir = path.resolve(".next/dev/server/chunks");
-      const targetWorker = path.join(chunksDir, "pdf.worker.mjs");
-      if (fs.existsSync(chunksDir) && !fs.existsSync(targetWorker)) {
-        const srcWorker = path.resolve("node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs");
-        if (fs.existsSync(srcWorker)) {
-          fs.copyFileSync(srcWorker, targetWorker);
-        }
-      }
-    } catch (wErr) {
-      // ignore
-    }
 
     if (file) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const mime = file.type || "application/octet-stream";
       trace.push(`file: name=${file.name}, size=${buffer.length}, type=${file.type}`);
 
-      if (mime.includes("pdf") || file.name.toLowerCase().endsWith(".pdf")) {
-        try {
-          trace.push("PDFParse: initializing");
-          const parser = new PDFParse({ data: buffer });
-          trace.push("PDFParse: calling getText()");
-          const parsedRes = await parser.getText();
-          const pdfText = parsedRes && parsedRes.text ? parsedRes.text : "";
-          trace.push(`PDFParse: got text length ${pdfText.length}`);
+      const isPdf = mime.includes("pdf") || file.name.toLowerCase().endsWith(".pdf");
 
-          // Check if extracted PDF text has actual contents or is empty/pagination-only
-          const meaningfulText = pdfText.replace(/--\s*\d+\s*of\s*\d+\s*--/g, "").trim();
+      if (isPdf) {
+        base64Payload = {
+          mimeType: "application/pdf",
+          data: buffer.toString("base64"),
+        };
 
-          // Generate page screenshot
-          let screenshotBuffer: Buffer | null = null;
-          try {
-            trace.push("PDFParse: calling getScreenshot()");
-            const ss = await parser.getScreenshot({ scale: 2 });
-            if (ss && ss.pages && ss.pages[0] && ss.pages[0].data) {
-              screenshotBuffer = Buffer.from(ss.pages[0].data);
-              renderedScreenshotDataUrl = ss.pages[0].dataUrl;
-              trace.push(`PDFParse: screenshot generated, size=${screenshotBuffer.length}`);
-              base64ImagePayload = {
-                mimeType: "image/png",
-                data: screenshotBuffer.toString("base64"),
-              };
-
-              // If meaningful text was empty (e.g. scanned or html2canvas PDF), run server OCR on screenshot(s)
-              if (meaningfulText.length < 30 && ss && ss.pages && ss.pages.length > 0) {
-                trace.push(`OCR: running performServerOCR on ${ss.pages.length} screenshot page(s)`);
-                const pagesToScan = Math.min(ss.pages.length, 5);
-                for (let pIdx = 0; pIdx < pagesToScan; pIdx++) {
-                  if (ss.pages[pIdx]?.data) {
-                    const pBuffer = Buffer.from(ss.pages[pIdx].data);
-                    const ocrRes = await performServerOCR(pBuffer);
-                    if (ocrRes.text) {
-                      extractedText = extractedText + `\n--- Page ${pIdx + 1} ---\n` + ocrRes.text;
-                    }
-                  }
-                }
-              }
-            }
-          } catch (ssErr: any) {
-            serverOcrError = "screenshot error: " + (ssErr?.message || String(ssErr));
-            trace.push("screenshot error: " + serverOcrError);
-            console.warn("PDF screenshot extraction warning:", ssErr);
-          }
-
-          if (meaningfulText.length >= 30) {
-            extractedText = pdfText + "\n" + extractedText;
-          }
-
-          await parser.destroy();
-        } catch (pdfErr: any) {
-          serverOcrError = "pdf-parse error: " + (pdfErr?.message || String(pdfErr));
-          trace.push("pdfErr: " + serverOcrError);
-          console.error("PDF-parse extraction error:", pdfErr);
+        trace.push("PDF: extracting text via pdfjs");
+        const pdfRes = await extractTextFromPDFBuffer(buffer);
+        if (pdfRes.text) {
+          extractedText = pdfRes.text + (extractedText ? "\n" + extractedText : "");
+          trace.push(`PDF: extracted ${pdfRes.text.length} chars from ${pdfRes.pageCount} page(s)`);
+        }
+        if (pdfRes.error) {
+          extractionError = pdfRes.error;
+          trace.push("PDF extraction warning: " + pdfRes.error);
         }
       } else if (mime.startsWith("image/")) {
-        base64ImagePayload = {
+        base64Payload = {
           mimeType: mime,
           data: buffer.toString("base64"),
         };
         renderedScreenshotDataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
-
-        // Run server OCR on the uploaded image directly
-        const ocrRes = await performServerOCR(buffer);
-        if (ocrRes.text) {
-          extractedText = ocrRes.text + "\n" + extractedText;
-        }
       }
     }
 
     // Attempt Gemini first if apiKey is configured and valid
     let result: any = null;
     if (apiKey && !apiKey.startsWith("AQ.")) {
-      result = await parseWithGemini(extractedText, base64ImagePayload, apiKey);
+      result = await parseWithGemini(extractedText, base64Payload, apiKey);
     }
 
-    // Always run the deterministic local parser for validation and fallback
+    // Always run deterministic local parser for validation and fallback
     const localData = parsePOAndInvoiceText(extractedText, fileName);
 
     if (!result) {
       result = localData;
     } else {
       // Validate and heal any hallucinated or missing Gemini fields
-      // 1. If cname is missing, too long, or captured an indemnity/legal clause, use localData.cname
       if (
         !result.cname ||
         /indemnif|liability|differential\s*gst|tax\s*rate|right\s*to\s*set-off|interest\s*and\s*penalty/i.test(result.cname) ||
@@ -277,32 +226,26 @@ export async function POST(req: Request) {
         result.cname = localData.cname;
       }
 
-      // 2. If caddr accidentally picked up SVS vendor address (FCI Colony, Hastinapuram), replace with localData.caddr
       if (!result.caddr || /FCI\s+COLONY|HASTINAPURAM|RTC\s+COLONY/i.test(result.caddr)) {
         result.caddr = localData.caddr;
       }
 
-      // 3. Heal PO number
       if (!result.po && localData.po) {
         result.po = localData.po;
       }
 
-      // 4. Heal GSTIN
       if (!result.cgstin && localData.cgstin) {
         result.cgstin = localData.cgstin;
       }
 
-      // 5. Heal Date
       if (!result.date && localData.date) {
         result.date = localData.date;
       }
 
-      // 6. If Gemini missed rows or returned 0 rows, use localData.rows
       if ((!result.rows || !Array.isArray(result.rows) || result.rows.length === 0) && localData.rows && localData.rows.length > 0) {
         result.rows = localData.rows;
       }
 
-      // 7. Heal State and Interstate tax status
       if (!result.stateName && localData.stateName) {
         result.stateName = localData.stateName;
       }
@@ -336,7 +279,7 @@ export async function POST(req: Request) {
       result.cgstin = "36AACCA8432H1ZR";
     }
 
-    // Clean up rows, normalize numbers, and auto-compute missing rates or amounts
+    // Clean up rows, normalize numbers, and auto-standardize items
     if (result.rows && Array.isArray(result.rows)) {
       result.rows = result.rows
         .map((r: any) => {
@@ -352,7 +295,7 @@ export async function POST(req: Request) {
       rawExtractedLength: extractedText.length,
       renderedScreenshotDataUrl: renderedScreenshotDataUrl || null,
       debugText: extractedText.trim().slice(0, 500),
-      ocrError: serverOcrError || null,
+      ocrError: extractionError || null,
       trace,
     });
   } catch (err: any) {
