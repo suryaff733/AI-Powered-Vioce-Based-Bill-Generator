@@ -212,6 +212,106 @@ export function reconcileRow(
   };
 }
 
+// Senior AI Smart Item Standardizer & Canonical Term Resolver
+// Intelligently maps generic or OCR terms to SVS official catalog terms (e.g. "Installation Charges" -> "INST. BOREWELL")
+export function smartStandardizeItem(
+  item: { p: string; h?: string; q?: string; r?: string; a?: number },
+  contextText: string = ""
+): { p: string; h: string; q: string; r: string; a: number; standardizedFrom?: string } {
+  const rawP = (item.p || "").trim();
+  let h = (item.h || "").trim();
+  const rNum = parseCleanNumber(item.r);
+  const aNum = typeof item.a === "number" && !isNaN(item.a) ? item.a : 0;
+  const combinedCtx = `${rawP} ${contextText}`.toLowerCase();
+
+  let p = cleanItemDescription(rawP);
+  let standardizedFrom: string | undefined = undefined;
+
+  // 1. Borewell Installation / INST. BOREWELL
+  // Intelligently maps "Installation Charges", "installation", "borewell installation", "inst. charges" -> "INST. BOREWELL" [SAC: 995479]
+  if (
+    /^(?:inst\.?\s*borewell|installation(?:\s*charges?)?|inst(?:\.|\b)?\s*charges?|erection\s*charges?|borewell\s*inst(?:allation)?)$/i.test(p) ||
+    h === "995479" ||
+    (/\binstall(?:ation)?\b/i.test(p) && (/borewell|pump|drilling|submersible/i.test(combinedCtx) || rNum >= 5000 || aNum >= 5000))
+  ) {
+    if (p !== "INST. BOREWELL") {
+      standardizedFrom = p;
+      p = "INST. BOREWELL";
+    }
+    if (!h || h === "998719") {
+      h = "995479";
+    }
+  }
+
+  // 2. Rewinding Charges / REWINDING CHARGES [SAC: 998719]
+  else if (/\b(?:rewinding(?:\s*charges?)?|motor\s*rewinding|submersible\s*(?:motor\s*)?rewinding|coil\s*rewinding)\b/i.test(p)) {
+    if (p !== "REWINDING CHARGES") {
+      standardizedFrom = p;
+      p = "REWINDING CHARGES";
+    }
+    if (!h) h = "998719";
+  }
+
+  // 3. Transport Charges / Transport Charges AU [SAC: 998719 / 996799]
+  else if (/\b(?:transport(?:ation)?(?:\s*charges?)?|freight(?:\s*charges?)?|cartage|delivery\s*charges?)\b/i.test(p)) {
+    if (!/Transport\s*Charges/i.test(p)) {
+      standardizedFrom = p;
+    }
+    p = "Transport Charges AU";
+    if (!h) h = "998719";
+  }
+
+  // 4. Other Accessories / Other Accessories [SAC: 995433]
+  else if (/\b(?:other\s*accessories|accessories|borewell\s*accessories|fitting\s*materials?|hardware\s*accessories)\b/i.test(p)) {
+    if (p !== "Other Accessories") {
+      standardizedFrom = p;
+      p = "Other Accessories";
+    }
+    if (!h) h = "995433";
+  }
+
+  // 5. STP 5-HP Pump Starter [SAC: 998719 / HSN: 8537]
+  else if (/\b(?:pump\s*starter|stp\s*(?:5\s*-?\s*hp\s*)?starter|5\s*hp\s*starter|starter\s*panel)\b/i.test(p)) {
+    if (!p.includes("STP") && !p.includes("Starter")) {
+      standardizedFrom = p;
+    }
+    if (/5\s*hp|stp/i.test(p)) {
+      p = "STP 5-HP Pump Starter";
+    }
+    if (!h) h = "998719";
+  }
+
+  // 6. Submersible Copper Cable [SAC: 998719 / HSN: 8544]
+  else if (/\b(?:submersible\s*(?:copper\s*)?cable|copper\s*cable|flat\s*cable|cable\s*3c)\b/i.test(p)) {
+    const specMatch = p.match(/(?:3c\s*x\s*4(?:\s*sq\.?\s*mm)?|4\s*sq\.?\s*mm|3\s*core|6\s*sq\.?\s*mm)/i);
+    const spec = specMatch ? ` ${specMatch[0]}` : "";
+    if (!p.toLowerCase().startsWith("submersible copper cable")) {
+      standardizedFrom = p;
+      p = `Submersible Copper Cable${spec}`;
+    }
+    if (!h) h = "998719";
+  }
+
+  // 7. Borewell Repair & Maintenance Charges [SAC: 998719]
+  else if (/\b(?:borewell\s*repair(?:\s*&?\s*maintenance)?|borewell\s*service|repair\s*charges)\b/i.test(p)) {
+    if (p !== "Borewell repair & maintenance charges") {
+      standardizedFrom = p;
+      p = "Borewell repair & maintenance charges";
+    }
+    if (!h) h = "998719";
+  }
+
+  return {
+    ...item,
+    p,
+    h,
+    q: item.q || "1",
+    r: item.r || "0",
+    a: aNum,
+    standardizedFrom,
+  };
+}
+
 // Clean and sanitize extracted address: remove leaked table rows, item text, prices, duplicate words, and clean punctuation
 export function sanitizeAddress(rawAddr: string): string {
   if (!rawAddr) return "";

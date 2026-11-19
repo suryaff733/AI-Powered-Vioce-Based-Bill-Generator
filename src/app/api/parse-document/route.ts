@@ -3,7 +3,8 @@ import { PDFParse } from "pdf-parse";
 import { createWorker } from "tesseract.js";
 import path from "path";
 import fs from "fs";
-import { parsePOAndInvoiceText, sanitizeAddress, reconcileRow, isTaxOrSummaryRow } from "@/lib/poParser";
+
+import { parsePOAndInvoiceText, sanitizeAddress, reconcileRow, isTaxOrSummaryRow, smartStandardizeItem } from "@/lib/poParser";
 
 // Helper for offline server-side OCR with local traineddata
 async function performServerOCR(imageBuffer: Buffer): Promise<{ text: string; error?: string }> {
