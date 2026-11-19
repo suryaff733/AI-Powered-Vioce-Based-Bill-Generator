@@ -404,7 +404,8 @@ export function parsePOAndInvoiceText(rawText: string, filename?: string): Extra
   const customerGstins = gstins.filter(g => g !== shopGstin);
   if (customerGstins.length > 0) {
     result.cgstin = customerGstins[0];
-  } else if (isDMart) {
+  } else {
+    // Default Customer GSTIN for SVS Billing (Avenue Supermarts Ltd / DMart)
     result.cgstin = "36AACCA8432H1ZR";
   }
 

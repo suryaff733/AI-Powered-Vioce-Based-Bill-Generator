@@ -373,9 +373,8 @@ export default function DocumentUploadModal({
                 fontSize: "12px",
                 backgroundColor: extractedPreview ? "#f0fdf4" : isProcessing ? "#eff6ff" : "#fff1f2",
                 color: extractedPreview ? "#15803d" : isProcessing ? "#1d4ed8" : "#be123c",
-                border: `1px solid ${
-                  extractedPreview ? "#bbf7d0" : isProcessing ? "#bfdbfe" : "#fecdd3"
-                }`,
+                border: `1px solid ${extractedPreview ? "#bbf7d0" : isProcessing ? "#bfdbfe" : "#fecdd3"
+                  }`,
                 display: "flex",
                 flexDirection: "column",
                 gap: "6px",
@@ -612,9 +611,9 @@ export default function DocumentUploadModal({
                   </label>
                   <input
                     type="text"
-                    value={extractedPreview.cgstin || ""}
+                    value={extractedPreview.cgstin || "36AACCA8432H1ZR"}
                     onChange={(e) => handleUpdateField("cgstin", e.target.value)}
-                    placeholder="15-character GSTIN"
+                    placeholder="36AACCA8432H1ZR"
                     style={{
                       width: "100%",
                       padding: "6px 10px",

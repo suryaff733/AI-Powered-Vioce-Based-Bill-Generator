@@ -2778,6 +2778,8 @@ export default function App() {
     }
     if (data.cgstin) {
       setCgstin(data.cgstin);
+    } else {
+      setCgstin("36AACCA8432H1ZR");
     }
     if (data.sname) {
       setSname(data.sname);
@@ -3064,7 +3066,7 @@ export default function App() {
             <div className="card-title">Bill To Party</div>
             <div className="field"><label>Customer Name</label><input value={cname} onChange={e => setCname(e.target.value)} placeholder="e.g. Avenue Supermarts Ltd." style={{ borderColor: activeFieldFocus === 'cname' ? '#003399' : '', boxShadow: activeFieldFocus === 'cname' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
             <div className="field"><label>Address</label><input value={caddr} onChange={e => setCaddr(e.target.value)} placeholder="e.g. Medipally D-Mart" style={{ borderColor: activeFieldFocus === 'caddr' ? '#003399' : '', boxShadow: activeFieldFocus === 'caddr' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
-            <div className="field"><label>GSTIN</label><input value={cgstin} onChange={e => setCgstin(e.target.value)} placeholder="Optional" /></div>
+            <div className="field"><label>GSTIN</label><input value={cgstin} onChange={e => setCgstin(e.target.value)} placeholder="36AACCA8432H1ZR" /></div>
           </div>
           <div className="card">
             <div className="card-title">Ship To Party <span style={{ fontSize: "10px", textTransform: "none", fontWeight: 400, color: "var(--color-text-secondary)" }}>(Optional)</span></div>

@@ -12,7 +12,7 @@ async function performServerOCR(imageBuffer: Buffer): Promise<{ text: string; er
     const tessDataPath = path.resolve("./tessdata");
     const workerScriptPath = path.resolve("./node_modules/tesseract.js/src/worker-script/node/index.js");
     const hasTessData = fs.existsSync(path.join(tessDataPath, "eng.traineddata"));
-    
+
     const workerOptions: any = {
       workerPath: workerScriptPath,
       gzip: false,
@@ -190,7 +190,7 @@ export async function POST(req: Request) {
           const parsedRes = await parser.getText();
           const pdfText = parsedRes && parsedRes.text ? parsedRes.text : "";
           trace.push(`PDFParse: got text length ${pdfText.length}`);
-          
+
           // Check if extracted PDF text has actual contents or is empty/pagination-only
           const meaningfulText = pdfText.replace(/--\s*\d+\s*of\s*\d+\s*--/g, "").trim();
 
@@ -330,10 +330,18 @@ export async function POST(req: Request) {
       result.caddr = sanitizeAddress(result.caddr);
     }
 
+    // Ensure default Customer GSTIN is 36AACCA8432H1ZR (Avenue Supermarts Ltd / DMart)
+    if (!result.cgstin) {
+      result.cgstin = "36AACCA8432H1ZR";
+    }
+
     // Clean up rows, normalize numbers, and auto-compute missing rates or amounts
     if (result.rows && Array.isArray(result.rows)) {
       result.rows = result.rows
-        .map((r: any) => reconcileRow(r))
+        .map((r: any) => {
+          const rec = reconcileRow(r);
+          return smartStandardizeItem(rec, extractedText);
+        })
         .filter((r: any) => r.p && !isTaxOrSummaryRow(r.p) && (r.a > 0 || parseFloat(r.r || "0") > 0));
     }
 
