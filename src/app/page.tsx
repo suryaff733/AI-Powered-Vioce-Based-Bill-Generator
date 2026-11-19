@@ -934,6 +934,14 @@ function translateOrTransliterateTelugu(text: string): string {
   return autocorrectElectricalTerminology(translatedText);
 }
 
+const DMART_LOCATIONS = [
+  { label: "5006 Malakpet", addr: "Avenue Supermarts Ltd., 5006 - Malakpet DMart, 16-2-705 Beside Swathi Function Hall, Malakpet, Hyderabad, 500006" },
+  { label: "5034 Nizampet", addr: "Avenue Supermarts Ltd., 5034 - Nizampet, Bachupally, Medchal Malkajgiri, Hyderabad, 500090" },
+  { label: "5040 Uppal", addr: "Avenue Supermarts Ltd., 5040 - Uppal Bagh Medchal Mall, Uppal Bhagavath, Hyderabad, 500039" },
+  { label: "Medipally", addr: "Avenue Supermarts Ltd., Medipally D-Mart, Warangal Highway, Hyderabad, 500098" },
+  { label: "Powai H.O.", addr: "Avenue Supermarts Ltd., Anjaneya, Opp. Hiranandani Foundation School, Powai, Mumbai - 400076" },
+];
+
 export default function App() {
   const [btype, setBtype] = useState<BillType>('gst');
   const [activeSec, setActiveSec] = useState<'create' | 'preview' | 'history'>('create');
@@ -950,6 +958,7 @@ export default function App() {
   const [sname, setSname] = useState("");
   const [saddr, setSaddr] = useState("");
   const [sgstin, setSgstin] = useState("");
+  const [sameAsBillTo, setSameAsBillTo] = useState(false);
   
   const [rows, setRows] = useState<Row[]>([
     { p: "", h: "", q: "", r: "", a: 0 },
@@ -2741,10 +2750,45 @@ export default function App() {
     }
   };
 
+  const handleToggleSameAsBillTo = (checked: boolean) => {
+    setSameAsBillTo(checked);
+    if (checked) {
+      setSname(cname);
+      setSaddr(caddr);
+      setSgstin(cgstin);
+    } else {
+      setSname("");
+      setSaddr("");
+      setSgstin("");
+    }
+  };
+
+  const handleCaddrChange = (val: string) => {
+    setCaddr(val);
+    if (sameAsBillTo) {
+      setSaddr(val);
+    }
+  };
+
+  const handleCnameChange = (val: string) => {
+    setCname(val);
+    if (sameAsBillTo) {
+      setSname(val);
+    }
+  };
+
+  const handleCgstinChange = (val: string) => {
+    setCgstin(val);
+    if (sameAsBillTo) {
+      setSgstin(val);
+    }
+  };
+
   const resetForm = () => {
     setCaddr(''); setSname(''); setSaddr(''); setSgstin(''); setPo(''); setTransport('');
     setCname('AVENUE SUPERMARTS LTD');
     setCgstin('36AACCA8432H1ZR');
+    setSameAsBillTo(false);
     setDiscount(0);
     setRows([{ p: "", h: "", q: "", r: "", a: 0 }, { p: "", h: "", q: "", r: "", a: 0 }, { p: "", h: "", q: "", r: "", a: 0 }]);
     setEditingBillId(null);
@@ -3064,15 +3108,52 @@ export default function App() {
           </div>
           <div className="card">
             <div className="card-title">Bill To Party</div>
-            <div className="field"><label>Customer Name</label><input value={cname} onChange={e => setCname(e.target.value)} placeholder="e.g. Avenue Supermarts Ltd." style={{ borderColor: activeFieldFocus === 'cname' ? '#003399' : '', boxShadow: activeFieldFocus === 'cname' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
-            <div className="field"><label>Address</label><input value={caddr} onChange={e => setCaddr(e.target.value)} placeholder="e.g. Medipally D-Mart" style={{ borderColor: activeFieldFocus === 'caddr' ? '#003399' : '', boxShadow: activeFieldFocus === 'caddr' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
-            <div className="field"><label>GSTIN</label><input value={cgstin} onChange={e => setCgstin(e.target.value)} placeholder="36AACCA8432H1ZR" /></div>
+            <div className="field"><label>Customer Name</label><input value={cname} onChange={e => handleCnameChange(e.target.value)} placeholder="e.g. Avenue Supermarts Ltd." style={{ borderColor: activeFieldFocus === 'cname' ? '#003399' : '', boxShadow: activeFieldFocus === 'cname' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></div>
+            <div className="field">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", flexWrap: "wrap", gap: "4px" }}>
+                <label style={{ margin: 0 }}>Address</label>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  {DMART_LOCATIONS.map((loc) => (
+                    <button
+                      key={loc.label}
+                      type="button"
+                      onClick={() => handleCaddrChange(loc.addr)}
+                      style={{
+                        fontSize: "10px",
+                        padding: "1px 6px",
+                        background: "#eff6ff",
+                        color: "#1d4ed8",
+                        border: "1px solid #bfdbfe",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                      }}
+                      title={loc.addr}
+                    >
+                      {loc.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input value={caddr} onChange={e => handleCaddrChange(e.target.value)} placeholder="e.g. Medipally D-Mart" style={{ borderColor: activeFieldFocus === 'caddr' ? '#003399' : '', boxShadow: activeFieldFocus === 'caddr' ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} />
+            </div>
+            <div className="field"><label>GSTIN</label><input value={cgstin} onChange={e => handleCgstinChange(e.target.value)} placeholder="36AACCA8432H1ZR" /></div>
           </div>
           <div className="card">
-            <div className="card-title">Ship To Party <span style={{ fontSize: "10px", textTransform: "none", fontWeight: 400, color: "var(--color-text-secondary)" }}>(Optional)</span></div>
-            <div className="field"><label>Name</label><input value={sname} onChange={e => setSname(e.target.value)} placeholder="Leave blank if same as Bill To" /></div>
-            <div className="field"><label>Address</label><input value={saddr} onChange={e => setSaddr(e.target.value)} placeholder="Optional" /></div>
-            <div className="field"><label>GSTIN</label><input value={sgstin} onChange={e => setSgstin(e.target.value)} placeholder="Optional" /></div>
+            <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>
+              <span>Ship To Party <span style={{ fontSize: "10px", textTransform: "none", fontWeight: 400, color: "var(--color-text-secondary)" }}>(Optional)</span></span>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 600, color: "#003399", cursor: "pointer", textTransform: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={sameAsBillTo}
+                  onChange={(e) => handleToggleSameAsBillTo(e.target.checked)}
+                  style={{ cursor: "pointer", accentColor: "#003399" }}
+                />
+                Same as Bill To Address
+              </label>
+            </div>
+            <div className="field"><label>Name</label><input value={sname} onChange={e => { setSname(e.target.value); if (sameAsBillTo) setSameAsBillTo(false); }} placeholder="Leave blank if same as Bill To" /></div>
+            <div className="field"><label>Address</label><input value={saddr} onChange={e => { setSaddr(e.target.value); if (sameAsBillTo) setSameAsBillTo(false); }} placeholder="Optional" /></div>
+            <div className="field"><label>GSTIN</label><input value={sgstin} onChange={e => { setSgstin(e.target.value); if (sameAsBillTo) setSameAsBillTo(false); }} placeholder="Optional" /></div>
           </div>
           <div className="card">
             <div className="card-title">Line Items</div>
