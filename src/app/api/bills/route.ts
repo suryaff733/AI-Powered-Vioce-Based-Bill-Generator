@@ -8,7 +8,7 @@ function getBillKey(b: any): string {
   return `${type}_${no}`;
 }
 
-export function sortBills(list: any[]): any[] {
+function sortBills(list: any[]): any[] {
   return [...list].sort((a, b) => {
     const dateA = a.date || "";
     const dateB = b.date || "";
@@ -20,7 +20,7 @@ export function sortBills(list: any[]): any[] {
   });
 }
 
-export function sanitizeBill(b: any): any {
+function sanitizeBill(b: any): any {
   if (!b || typeof b !== "object") return null;
   const rawNo = b.no !== undefined && b.no !== null ? String(b.no).trim() : "";
   const numOnly = parseInt(rawNo.replace(/\D/g, ""), 10);
@@ -90,7 +90,7 @@ export function sanitizeBill(b: any): any {
   };
 }
 
-export function deduplicateBills(list: any[]): any[] {
+function deduplicateBills(list: any[]): any[] {
   const keyMap = new Map<string, any>();
   const contentMap = new Map<string, any>();
 

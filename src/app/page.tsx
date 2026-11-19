@@ -7,6 +7,7 @@ import { invHTML } from "../lib/invoiceHTML";
 import "./globals.css"; // Ensure global CSS has the original styles
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import ConversationalDrawer from "./components/ConversationalDrawer";
+import DocumentUploadModal from "./components/DocumentUploadModal";
 
 type Row = { p: string; h: string; q: string; r: string; a: number };
 type BillType = 'gst' | 'quotation' | 'cash';
@@ -981,6 +982,7 @@ export default function App() {
 
   const [isParsing, setIsParsing] = useState(false);
   const [showAiDrawer, setShowAiDrawer] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [fsmState, setFsmState] = useState<string>("IDLE");
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [activeFieldFocus, setActiveFieldFocus] = useState<string>("btype");
@@ -2749,6 +2751,61 @@ export default function App() {
     setNo(calculateNextBillNo(bills, btype));
   };
 
+  const handleAutofillFromDocument = (data: any) => {
+    if (!data) return;
+    pushToUndo();
+
+    if (data.btype) {
+      setBtype(data.btype);
+    }
+    if (data.no) {
+      setNo(formatBillNo(data.no));
+    }
+    if (data.date) {
+      setDate(data.date);
+    }
+    if (data.po) {
+      setPo(data.po);
+    }
+    if (data.transport) {
+      setTransport(data.transport);
+    }
+    if (data.cname) {
+      setCname(data.cname);
+    }
+    if (data.caddr) {
+      setCaddr(data.caddr);
+    }
+    if (data.cgstin) {
+      setCgstin(data.cgstin);
+    }
+    if (data.sname) {
+      setSname(data.sname);
+    }
+    if (data.saddr) {
+      setSaddr(data.saddr);
+    }
+    if (data.sgstin) {
+      setSgstin(data.sgstin);
+    }
+    if (data.applyGst !== undefined) {
+      setApplyGst(Boolean(data.applyGst));
+    }
+    if (data.discount !== undefined && !isNaN(Number(data.discount))) {
+      setDiscount(Number(data.discount));
+    }
+    if (Array.isArray(data.rows) && data.rows.length > 0) {
+      setRows(data.rows);
+    }
+
+    setActiveSec('create');
+    const poLabel = data.po ? `PO #${data.po}` : "Document";
+    const rowCount = Array.isArray(data.rows) ? data.rows.length : 0;
+    setDlMsg(`✓ ${poLabel} auto-filled! ${rowCount} item(s) imported seamlessly into invoice.`);
+    setShowBanner(true);
+    setTimeout(() => setShowBanner(false), 5000);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -2897,6 +2954,34 @@ export default function App() {
           <button
             type="button"
             className="btn btn-blue"
+            onClick={() => setShowUploadModal(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "linear-gradient(135deg, #059669, #10b981)",
+              color: "#fff",
+              border: "none",
+              boxShadow: "0 2px 4px rgba(16, 185, 129, 0.25)",
+              cursor: "pointer",
+            }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <span style={{ fontWeight: 600 }}>Upload PO / Bill</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-blue"
             onClick={startConversationalAssistant}
             style={{
               display: "flex",
@@ -2943,7 +3028,29 @@ export default function App() {
       {activeSec === 'create' && (
         <div id="sec-create">
           <div className="card">
-            <div className="card-title">Bill Details</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <div className="card-title" style={{ margin: 0 }}>Bill Details</div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setShowUploadModal(true)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: "#059669",
+                  borderColor: "#a7f3d0",
+                  backgroundColor: "#ecfdf5",
+                }}
+              >
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span>Upload PO / Invoice (Image or PDF)</span>
+              </button>
+            </div>
             <div className="g2">
               <div className="field"><label>Bill No.</label><input value={no} onChange={e => setNo(e.target.value)} /></div>
               <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
@@ -3257,6 +3364,12 @@ export default function App() {
         onReset={resetFsm}
         speechError={speechError}
         isSpeechSupported={isSupported}
+      />
+
+      <DocumentUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onAutofill={handleAutofillFromDocument}
       />
     </div>
   );
