@@ -2601,6 +2601,28 @@ export default function App() {
     setRows(newRows);
   };
 
+  const handleAutoGenerateAllHsn = () => {
+    let count = 0;
+    const updated = rows.map((r) => {
+      if (r.p && r.p.trim() !== "") {
+        const code = getAutoHsn(r.p);
+        if (code) {
+          if (r.h !== code) count++;
+          return { ...r, h: code };
+        }
+      }
+      return r;
+    });
+    setRows(updated);
+    if (count > 0) {
+      setDlMsg(`✓ Generated HSN/SAC codes for ${count} item(s)!`);
+    } else {
+      setDlMsg(`✓ HSN/SAC codes verified and updated!`);
+    }
+    setShowBanner(true);
+    setTimeout(() => setShowBanner(false), 3000);
+  };
+
   const sub = rows.reduce((s, x) => s + (parseFloat(x.a as any) || 0), 0);
   const discountAmt = Math.round(sub * (discount / 100) * 100) / 100;
   const subAfterDiscount = Math.max(0, Math.round((sub - discountAmt) * 100) / 100);
@@ -3172,7 +3194,30 @@ export default function App() {
             <div className="field"><label>GSTIN</label><input value={sgstin} onChange={e => { setSgstin(e.target.value); if (sameAsBillTo) setSameAsBillTo(false); }} placeholder="Optional" /></div>
           </div>
           <div className="card">
-            <div className="card-title">Line Items</div>
+            <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <span>Line Items</span>
+              <button
+                type="button"
+                onClick={handleAutoGenerateAllHsn}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#1d4ed8",
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  textTransform: "none",
+                }}
+                title="Automatically generate HSN/SAC codes based on item names"
+              >
+                ⚡ Auto-Generate HSN
+              </button>
+            </div>
             <div className="items-wrap">
               <table className="it">
                 <thead><tr>
@@ -3197,12 +3242,35 @@ export default function App() {
                         />
                       </td>
                       <td data-lbl="HSN/SAC">
-                        <input
-                          value={r.h}
-                          placeholder={getAutoHsn(r.p) || "HSN"}
-                          onChange={e => upd(i, 'h', e.target.value)}
-                          title={r.h ? `HSN/SAC: ${r.h}` : (r.p ? `Auto-generated HSN: ${getAutoHsn(r.p)}` : "HSN/SAC Code")}
-                        />
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <input
+                            value={r.h}
+                            placeholder={getAutoHsn(r.p) || "HSN"}
+                            onChange={e => upd(i, 'h', e.target.value)}
+                            title={r.h ? `HSN/SAC: ${r.h}` : (r.p ? `Auto-generated HSN: ${getAutoHsn(r.p)}` : "HSN/SAC Code")}
+                            style={{ flex: 1, minWidth: "55px" }}
+                          />
+                          {r.p && getAutoHsn(r.p) && (!r.h || r.h !== getAutoHsn(r.p)) && (
+                            <button
+                              type="button"
+                              onClick={() => upd(i, 'h', getAutoHsn(r.p))}
+                              title={`Auto-set HSN to ${getAutoHsn(r.p)}`}
+                              style={{
+                                padding: "3px 5px",
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                color: "#1d4ed8",
+                                background: "#eff6ff",
+                                border: "1px solid #bfdbfe",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                lineHeight: 1,
+                              }}
+                            >
+                              ⚡
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td data-lbl="Qty"><input type="text" value={r.q} placeholder="0" onChange={e => upd(i, 'q', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
                       <td data-lbl="Rate (Rs.)"><input type="number" min="0" value={r.r} placeholder="0" onChange={e => upd(i, 'r', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
@@ -3213,7 +3281,30 @@ export default function App() {
                 </tbody>
               </table>
             </div>
-            <button className="btn btn-sm" onClick={() => addRow()}>+ Add Item</button>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "4px" }}>
+              <button className="btn btn-sm" onClick={() => addRow()}>+ Add Item</button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleAutoGenerateAllHsn}
+                style={{
+                  background: "#f0fdf4",
+                  color: "#15803d",
+                  border: "1px solid #bbf7d0",
+                  fontWeight: 600,
+                  fontSize: "12px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                }}
+                title="Auto-generate HSN/SAC codes for all items"
+              >
+                ⚡ Auto-Generate HSN
+              </button>
+            </div>
             <div style={{ display: "flex", gap: "16px", alignItems: "center", marginTop: "12px", flexWrap: "wrap", padding: "10px 12px", background: "var(--color-background-secondary, #f8fafc)", borderRadius: "6px" }}>
               <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", fontWeight: 600 }}>
                 <input type="checkbox" checked={applyGst} onChange={e => setApplyGst(e.target.checked)} style={{ width: "auto" }} /> Apply GST (CGST 9% + SGST 9%)

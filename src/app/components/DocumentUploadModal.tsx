@@ -138,6 +138,21 @@ export default function DocumentUploadModal({
     }));
   };
 
+  const handleAutoHsnAllRows = () => {
+    setExtractedPreview((prev: any) => {
+      if (!prev || !prev.rows) return prev;
+      const updatedRows = prev.rows.map((row: any) => {
+        const auto = getAutoHsn(row.p || "");
+        return {
+          ...row,
+          h: auto || row.h || "",
+          _autoHsn: Boolean(auto),
+        };
+      });
+      return { ...prev, rows: updatedRows };
+    });
+  };
+
   const handleRemoveRow = (index: number) => {
     setExtractedPreview((prev: any) => ({
       ...prev,
@@ -677,22 +692,44 @@ export default function DocumentUploadModal({
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
                     Line Items, HSN & Pricing ({extractedPreview.rows ? extractedPreview.rows.length : 0}):
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAddRow}
-                    style={{
-                      padding: "3px 8px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "#003399",
-                      background: "#eff6ff",
-                      border: "1px solid #bfdbfe",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    + Add Item Row
-                  </button>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={handleAutoHsnAllRows}
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: "#15803d",
+                        background: "#f0fdf4",
+                        border: "1px solid #bbf7d0",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                      title="Automatically predict and fill HSN/SAC codes for all items"
+                    >
+                      ⚡ Auto-Fill HSN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddRow}
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: "#003399",
+                        background: "#eff6ff",
+                        border: "1px solid #bfdbfe",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      + Add Item Row
+                    </button>
+                  </div>
                 </div>
 
                 <div
