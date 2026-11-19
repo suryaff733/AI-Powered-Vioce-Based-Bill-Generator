@@ -8,6 +8,7 @@ import "./globals.css"; // Ensure global CSS has the original styles
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import ConversationalDrawer from "./components/ConversationalDrawer";
 import DocumentUploadModal from "./components/DocumentUploadModal";
+import { getAutoHsn } from "../lib/poParser";
 
 type Row = { p: string; h: string; q: string; r: string; a: number };
 type BillType = 'gst' | 'quotation' | 'cash';
@@ -2565,12 +2566,23 @@ export default function App() {
   }, []);
 
   const addRow = (p='', h='', q='', r='', a=0) => {
-    setRows([...rows, { p, h, q, r, a }]);
+    const autoH = h || (p ? getAutoHsn(p) : '');
+    setRows([...rows, { p, h: autoH, q, r, a }]);
   };
 
   const upd = (i: number, field: keyof Row, val: string) => {
     const newRows = [...rows];
     (newRows[i] as any)[field] = val;
+
+    // Smart Auto-HSN Generation based on item description name
+    if (field === 'p' && typeof val === 'string' && val.trim().length > 1) {
+      if (!newRows[i].h || newRows[i].h.trim() === '' || (newRows[i] as any)._autoHsn) {
+        newRows[i].h = getAutoHsn(val);
+        (newRows[i] as any)._autoHsn = true;
+      }
+    } else if (field === 'h') {
+      (newRows[i] as any)._autoHsn = false;
+    }
 
     const q = parseFloat(newRows[i].q);
     const r = parseFloat(newRows[i].r);
@@ -2841,7 +2853,11 @@ export default function App() {
       setDiscount(Number(data.discount));
     }
     if (Array.isArray(data.rows) && data.rows.length > 0) {
-      setRows(data.rows);
+      const enrichedRows = data.rows.map((r: any) => ({
+        ...r,
+        h: r.h && String(r.h).trim() !== "" ? r.h : getAutoHsn(r.p),
+      }));
+      setRows(enrichedRows);
     }
 
     setActiveSec('create');
@@ -3180,7 +3196,14 @@ export default function App() {
                           style={{ borderColor: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-particulars' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }}
                         />
                       </td>
-                      <td data-lbl="HSN/SAC"><input value={r.h} placeholder="HSN" onChange={e => upd(i, 'h', e.target.value)} /></td>
+                      <td data-lbl="HSN/SAC">
+                        <input
+                          value={r.h}
+                          placeholder={getAutoHsn(r.p) || "HSN"}
+                          onChange={e => upd(i, 'h', e.target.value)}
+                          title={r.h ? `HSN/SAC: ${r.h}` : (r.p ? `Auto-generated HSN: ${getAutoHsn(r.p)}` : "HSN/SAC Code")}
+                        />
+                      </td>
                       <td data-lbl="Qty"><input type="text" value={r.q} placeholder="0" onChange={e => upd(i, 'q', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-qty' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
                       <td data-lbl="Rate (Rs.)"><input type="number" min="0" value={r.r} placeholder="0" onChange={e => upd(i, 'r', e.target.value)} style={{ borderColor: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '#003399' : '', boxShadow: (activeFieldFocus === 'rows-rate' && i === rows.length - 1) ? '0 0 0 3px rgba(0, 51, 153, 0.2)' : '' }} /></td>
                       <td className="amt" data-lbl="Amount">{r.a ? r.a.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</td>

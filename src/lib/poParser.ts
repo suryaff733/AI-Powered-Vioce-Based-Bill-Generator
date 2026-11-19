@@ -212,6 +212,55 @@ export function reconcileRow(
   };
 }
 
+// Auto-generate official GST HSN/SAC code based on the item description
+export function getAutoHsn(name: string): string {
+  if (!name) return "";
+  const n = name.trim().toLowerCase();
+
+  // 1. Borewell Installation / Drilling
+  if (/^(?:inst\.?\s*borewell|installation(?:\s*charges?)?|inst(?:\.|\b)?\s*charges?|erection\s*charges?|borewell\s*inst(?:allation)?|compressor|flushing)/i.test(n) || /\b(?:borewell\s*installation|install\s*pump)\b/i.test(n)) {
+    return "995479";
+  }
+
+  // 2. Accessories & Fittings
+  if (/\b(?:accessories|other\s*accessories|fitting|hardware|clamps?|flange|nipple|bend|foot\s*valve)\b/i.test(n)) {
+    return "995433";
+  }
+
+  // 3. Transport & Cartage
+  if (/\b(?:transport|transportation|freight|cartage|delivery|vehicle)\b/i.test(n)) {
+    return "998719";
+  }
+
+  // 4. Starters & Control Panels
+  if (/\b(?:starter|stp|control\s*panel|dol|star\s*delta|panel\s*board)\b/i.test(n)) {
+    return "998719";
+  }
+
+  // 5. Rewinding & Repair Services
+  if (/\b(?:rewinding|repair|maintenance|servicing|motor\s*service|overhaul)\b/i.test(n)) {
+    return "998719";
+  }
+
+  // 6. Submersible Cables & Wires
+  if (/\b(?:cable|copper\s*cable|submersible\s*cable|wire|wires|3c\s*x\s*4)\b/i.test(n)) {
+    return "998719";
+  }
+
+  // 7. Pumps & Motors (Physical Goods)
+  if (/\b(?:kirloskar|pump\s*set|submersible\s*pump|borewell\s*pump|motor\s*set)\b/i.test(n)) {
+    return "84137095";
+  }
+
+  // 8. uPVC Column Pipes & Fittings
+  if (/\b(?:pipe|pipes|column\s*pipe|upvc|pvc|hdpe)\b/i.test(n)) {
+    return "3917";
+  }
+
+  // Default for electrical works
+  return "998719";
+}
+
 // Senior AI Smart Item Standardizer & Canonical Term Resolver
 // Intelligently maps generic or OCR terms to SVS official catalog terms (e.g. "Installation Charges" -> "INST. BOREWELL")
 export function smartStandardizeItem(
@@ -299,6 +348,10 @@ export function smartStandardizeItem(
       p = "Borewell repair & maintenance charges";
     }
     if (!h) h = "998719";
+  }
+
+  if (!h && p) {
+    h = getAutoHsn(p);
   }
 
   return {

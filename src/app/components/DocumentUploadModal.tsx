@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { createWorker } from "tesseract.js";
+import { getAutoHsn } from "@/lib/poParser";
 
 interface DocumentUploadModalProps {
   isOpen: boolean;
@@ -81,7 +81,14 @@ export default function DocumentUploadModal({
           setPreviewUrl(json.renderedScreenshotDataUrl);
         }
         setOcrProgress(100);
-        setExtractedPreview(json.data);
+        const enrichedData = {
+          ...json.data,
+          rows: (json.data.rows || []).map((r: any) => ({
+            ...r,
+            h: r.h && r.h.trim() !== "" ? r.h : getAutoHsn(r.p),
+          })),
+        };
+        setExtractedPreview(enrichedData);
         setStatusMessage("Document parsed successfully! Review the extracted fields below.");
       } else {
         setStatusMessage(json.error || "Failed to extract invoice fields from this document.");
@@ -105,6 +112,16 @@ export default function DocumentUploadModal({
     setExtractedPreview((prev: any) => {
       const newRows = [...(prev.rows || [])];
       newRows[index] = { ...newRows[index], [field]: val };
+      // Auto-generate HSN/SAC when Particulars description is typed
+      if (field === "p" && typeof val === "string" && val.trim().length > 1) {
+        if (!newRows[index].h || newRows[index].h.trim() === "" || (newRows[index] as any)._autoHsn) {
+          newRows[index].h = getAutoHsn(val);
+          (newRows[index] as any)._autoHsn = true;
+        }
+      } else if (field === "h") {
+        (newRows[index] as any)._autoHsn = false;
+      }
+
       if (field === "q" || field === "r") {
         const qNum = parseFloat(String(newRows[index].q || "0").replace(/,/g, "")) || 0;
         const rNum = parseFloat(String(newRows[index].r || "0").replace(/,/g, "")) || 0;
