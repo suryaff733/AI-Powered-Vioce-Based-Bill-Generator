@@ -35,6 +35,14 @@ function extractRawTextFromPdf(buffer: Buffer): string {
 async function extractTextFromPDFBuffer(pdfBuffer: Buffer): Promise<{ text: string; pageCount: number; error?: string }> {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // Ensure worker is registered from the exact same package version
+    try {
+      // @ts-ignore
+      await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    } catch {
+      // ignore if already registered
+    }
+
     const uint8 = new Uint8Array(pdfBuffer.buffer, pdfBuffer.byteOffset, pdfBuffer.byteLength);
     const loadingTask = pdfjsLib.getDocument({
       data: uint8,
